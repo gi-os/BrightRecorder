@@ -37,6 +37,7 @@ import com.gios.brightrecorder.ui.ClipsScreen
 import com.gios.brightrecorder.ui.NowStrip
 import com.gios.brightrecorder.ui.TabBar
 import com.gios.brightrecorder.ui.TapeScreen
+import com.gios.brightrecorder.ui.TapesScreen
 import com.gios.brightrecorder.ui.theme.BrightRecorderTheme
 
 class MainActivity : ComponentActivity() {
@@ -160,10 +161,14 @@ class MainActivity : ComponentActivity() {
 private fun Root(onRecord: () -> Unit) {
     val state by TapeController.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    val labels = remember { listOf("TAPE", "MOMENTS") }
+    val labels = remember { listOf("TAPE", "MOMENTS", "SHELF") }
 
     // Whichever screen is up is the screen a crash report should name.
-    ReportContext.screen = if (tab == 0) "tape" else "moments"
+    ReportContext.screen = when (tab) {
+        0 -> "tape"
+        1 -> "moments"
+        else -> "shelf"
+    }
 
     Column(
         Modifier
@@ -175,11 +180,12 @@ private fun Root(onRecord: () -> Unit) {
         Box(Modifier.weight(1f).fillMaxSize()) {
             when (tab) {
                 0 -> TapeScreen(state, onNeedMicrophone = onRecord)
-                else -> ClipsScreen(state)
+                1 -> ClipsScreen(state)
+                else -> TapesScreen(state)
             }
         }
-        // The transport strip only belongs on the list: the tape screen already is one.
-        if (tab != 0) NowStrip(state)
+        // The transport strip only belongs where the transport is not already on screen.
+        if (tab == 1) NowStrip(state)
         TabBar(selected = tab, labels = labels) { tab = it }
     }
 }

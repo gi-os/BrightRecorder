@@ -3,19 +3,18 @@ package com.gios.brightrecorder.tape
 import java.io.File
 
 /**
- * The directory of clips, read as a tape.
+ * One directory of clips, read as a tape.
  *
- * There is no database and no index file. The tape is whatever is in the directory, sorted by
- * the timestamps in the filenames, and that is a deliberate choice rather than a shortcut: an
- * index is a second copy of the truth that can disagree with the first one, and when it does,
- * recordings that still exist stop being playable. Reading the directory every time cannot
- * disagree with itself. It costs a listing and a header read per clip, which for a few hundred
- * clips is a few milliseconds — paid once on launch and once after each recording.
+ * There is no database and no index file. A tape is whatever is in its directory, sorted by the
+ * timestamps in the filenames, and that is a deliberate choice rather than a shortcut: an index is
+ * a second copy of the truth that can disagree with the first one, and when it does, recordings
+ * that still exist stop being playable. Reading the directory every time cannot disagree with
+ * itself. It costs a listing and a header read per clip, which for a few hundred clips is a few
+ * milliseconds — paid once on launch and once after each recording.
+ *
+ * Which directory is [Tapes]' business; this reads whichever one it is handed.
  */
 object Library {
-
-    /** Where clips live. Private storage: these are personal recordings. */
-    fun dir(filesDir: File): File = File(filesDir, "tape").apply { mkdirs() }
 
     /**
      * Every clip in [dir], in recording order.

@@ -34,7 +34,17 @@ import kotlin.math.abs
  * the lock — but it is called from the service between transports, never while the reels are
  * turning.
  */
-class TapeEngine(private val dir: File) {
+class TapeEngine(dir: File) {
+
+    /**
+     * The folder the head reads from.
+     *
+     * Mutable because the machine takes different tapes now, and a tape is a directory. Changed
+     * only by [swapTape], together with the timeline it belongs to — the two must move as one, or
+     * the head spends a block reading one tape's clip list out of another tape's folder.
+     */
+    @Volatile
+    private var dir: File = dir
 
     @Volatile
     var transport: Transport = Transport.Stopped
@@ -75,6 +85,22 @@ class TapeEngine(private val dir: File) {
         synchronized(lock) {
             timeline = Timeline(clips)
             position = position.coerceIn(0.0, timeline.samples.toDouble())
+        }
+    }
+
+    /**
+     * Put a different tape on the machine: new folder, new clips, head back to the start.
+     *
+     * The position resets rather than being clamped, which is the difference between this and
+     * [swapTape]. Swapping is the same tape re-read after a recording or a delete and the head
+     * should stay where it was; this is a *different* tape, and starting it in the middle because
+     * that is where you happened to be on the last one would make no sense.
+     */
+    fun loadTape(newDir: File, clips: List<Clip>) {
+        synchronized(lock) {
+            dir = newDir
+            timeline = Timeline(clips)
+            position = 0.0
         }
     }
 

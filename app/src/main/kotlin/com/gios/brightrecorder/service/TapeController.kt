@@ -3,12 +3,15 @@ package com.gios.brightrecorder.service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.gios.brightrecorder.Prefs
 import com.gios.brightrecorder.place.Places
 import com.gios.brightrecorder.report.Trouble
 import com.gios.brightrecorder.tape.Clip
 import com.gios.brightrecorder.tape.Library
 import com.gios.brightrecorder.tape.Naming
 import com.gios.brightrecorder.tape.Recorder
+import com.gios.brightrecorder.tape.Tape
+import com.gios.brightrecorder.tape.Tapes
 import com.gios.brightrecorder.tape.SAMPLES_PER_SECOND
 import com.gios.brightrecorder.tape.TapeEngine
 import com.gios.brightrecorder.tape.Transport
@@ -26,6 +29,11 @@ import java.io.File
 
 /** Everything the UI draws, in one snapshot. */
 data class TapeState(
+    /** The shelf, oldest tape first. */
+    val tapes: List<Tape> = emptyList(),
+    /** The tape on the machine. Null only before the first shelf read finishes. */
+    val tape: Tape? = null,
+    /** Clips on the tape that is loaded. */
     val clips: List<Clip> = emptyList(),
     val transport: Transport = Transport.Stopped,
     /** Head position in samples from the start of the whole tape. */
@@ -82,7 +90,10 @@ object TapeController {
     val state: StateFlow<TapeState> = _state.asStateFlow()
 
     private var appContext: Context? = null
+    private var root: File? = null
     private var dir: File? = null
+    private var current: Tape? = null
+    private var shelved: List<Tape> = emptyList()
     private var engine: TapeEngine? = null
     private var recorder: Recorder? = null
     private var places: Places? = null
@@ -94,24 +105,123 @@ object TapeController {
         if (appContext != null) return
         val app = context.applicationContext
         appContext = app
-        val tapeDir = Library.dir(app.filesDir)
+        val shelf = Tapes.root(app.filesDir)
+        root = shelf
+        places = Places(app)
+        // Pointed at the shelf until a tape is loaded, which happens below before anything can
+        // play; the folder it actually reads from is set by [TapeEngine.loadTape].
+        engine = TapeEngine(shelf).also { e ->
+            e.onEnd = { atStart -> onRanOff(atStart) }
+        }
+
+        scope.launch {
+            val now = System.currentTimeMillis()
+            // Everything recorded before tapes existed lived in one flat folder. Move it onto the
+            // shelf before anything reads the shelf, so those recordings are never briefly absent.
+            Tapes.migrateLegacy(app.filesDir, now)
+
+            var onShelf = Tapes.list(shelf)
+            if (onShelf.isEmpty()) {
+                // A first launch, or a store that has been cleared. The machine always has a tape
+                // on it, so there is always one to record onto without deciding anything first.
+                Tapes.create(shelf, Tapes.DEFAULT_NAME, now)
+                onShelf = Tapes.list(shelf)
+            }
+
+            // Anything a killed recording left behind is filed before the first scan, and on
+            // *every* tape rather than only the current one — an orphan on a tape you have not
+            // opened since would otherwise sit there unfiled indefinitely.
+            for (t in onShelf) Recorder(Tapes.dirOf(shelf, t)).recover()
+
+            val wanted = Prefs.currentTape(app)
+            val tape = onShelf.firstOrNull { it.dirName == wanted } ?: onShelf.first()
+            openTape(tape)
+        }
+    }
+
+    // ---------------------------------------------------------------------- the shelf
+
+    /**
+     * Put a tape on the machine.
+     *
+     * Everything that reads or writes clips is rebuilt around the new folder: the recorder writes
+     * there, the engine reads there, and the head starts at the beginning of it. Refused while
+     * recording, because the recording in progress belongs to the tape it was started on and
+     * moving the machine out from under it would file it somewhere else.
+     */
+    fun openTape(tape: Tape) {
+        val shelf = root ?: return
+        val app = appContext ?: return
+        if (_state.value.isRecording) return
+
+        stop()
+        val tapeDir = Tapes.dirOf(shelf, tape)
         dir = tapeDir
+        current = tape
         recorder = Recorder(tapeDir).also { r ->
             // A capture thread that stops on its own has failed. Finish the recording properly so
             // whatever it managed to capture is filed and the UI stops claiming to be recording.
             r.onDied = { scope.launch { finishRecording() } }
         }
-        places = Places(app)
-        engine = TapeEngine(tapeDir).also { e ->
-            e.onEnd = { atStart -> onRanOff(atStart) }
-        }
+        engine?.loadTape(tapeDir, Library.scan(tapeDir))
+        Prefs.setCurrentTape(app, tape.dirName)
+        refreshShelf()
+    }
 
+    /** A new tape, put on the machine straight away — you made it in order to record onto it. */
+    fun newTape(name: String) {
+        val shelf = root ?: return
+        if (_state.value.isRecording) return
         scope.launch {
-            // Anything a killed recording left behind is filed before the first scan, so it
-            // appears on the tape immediately rather than after the next launch.
-            recorder?.recover()
-            reload()
+            val made = Tapes.create(shelf, name, System.currentTimeMillis()) ?: return@launch
+            openTape(made)
         }
+    }
+
+    fun renameTape(tape: Tape, name: String) {
+        val shelf = root ?: return
+        scope.launch {
+            val renamed = Tapes.rename(shelf, tape, name) ?: return@launch
+            // The folder moved, so anything holding the old one is stale — including this tape if
+            // it is the one on the machine.
+            if (tape.dirName == current?.dirName) openTape(renamed) else refreshShelf()
+        }
+    }
+
+    fun cyclePattern(tape: Tape) {
+        val shelf = root ?: return
+        scope.launch {
+            Tapes.setPattern(shelf, tape, tape.pattern.next())
+            refreshShelf()
+        }
+    }
+
+    /**
+     * Take an empty tape off the shelf.
+     *
+     * [Tapes.delete] refuses one with clips on it, so this cannot destroy recordings however it is
+     * called. The last tape cannot go either — the machine always has something on it, and an
+     * empty shelf would be a state with no way back except recording into nothing.
+     */
+    fun deleteTape(tape: Tape) {
+        val shelf = root ?: return
+        scope.launch {
+            if (_state.value.tapes.size <= 1) return@launch
+            if (!Tapes.delete(shelf, tape)) return@launch
+            if (tape.dirName == current?.dirName) {
+                Tapes.list(shelf).firstOrNull()?.let { openTape(it) }
+            } else {
+                refreshShelf()
+            }
+        }
+    }
+
+    /** Re-read the shelf and publish. Cheap: a listing and a header read per clip. */
+    private fun refreshShelf() {
+        val shelf = root ?: return
+        shelved = Tapes.list(shelf)
+        current = shelved.firstOrNull { it.dirName == current?.dirName } ?: current
+        publish()
     }
 
     // ------------------------------------------------------------------ transport
@@ -343,7 +453,9 @@ object TapeController {
         val d = dir ?: return
         val clips = Library.scan(d)
         engine?.swapTape(clips)
-        publish()
+        // Through the shelf rather than straight to publish: the shelf shows how long each tape
+        // is, so recording or deleting a clip changes what the tape looks like there too.
+        refreshShelf()
     }
 
     // ---------------------------------------------------------------------- ticks
@@ -389,6 +501,8 @@ object TapeController {
         val r = recorder
         val tape = e?.tape
         _state.value = TapeState(
+            tapes = shelved,
+            tape = current,
             clips = tape?.clips ?: emptyList(),
             transport = if (r?.isRecording == true) Transport.Recording else e?.transport ?: Transport.Stopped,
             position = e?.position?.toLong() ?: 0L,

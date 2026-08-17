@@ -1,72 +1,85 @@
-## BrightRecorder v1.2 — Winding works like winding
+## BrightRecorder v1.3 — More than one tape
 
-**Rewind and fast-forward are momentary now, from the keys and from the wheel, and letting go
-hands the tape straight back to whatever it was doing. Clip titles are places, never
-coordinates.**
+**A shelf of tapes instead of one endless one. Name each tape, mark it with a pattern, swipe
+through them, and load the one you want to record onto.**
 
-### The wheel winds, and keeps winding
+One tape for a trip. One for the flat. One for the year. They stay separate, they play
+separately, and the machine only ever has one on it — which is the point, because a single tape
+holding everything you have ever recorded is a tape you stop putting anything on.
 
-Turning the wheel back rewinds. Turning it forward fast-forwards. It keeps winding as long as
-you keep turning and lets go 350 ms after the last notch — long enough to ride over the gaps in
-an unhurried turn, short enough that stopping feels like stopping.
+### The shelf
 
-What was there before was a flywheel: the app inferred a *speed* from how thickly the notches
-arrived, so the tape had mass, coasted, and settled back on its own. It reads well written down
-and it is wrong in the hand. What you want from a wheel on a tape machine is to wind until you
-get there — not to nudge a speed and then wait for it to decay. The flywheel and its tests are
-gone rather than left switched off.
+A third screen, **SHELF**. One cassette at a time, swiped through — a pager rather than a list,
+because what is being chosen is an object and picking one should feel like sliding the next into
+view. The wheel moves along the shelf too, one tape per notch; it is the only screen where a
+notch is a step rather than a speed, because there is nothing here to wind.
 
-### Letting go carries on playing
+Swiping only *looks*. **LOAD** puts a tape on the machine, and that is a deliberate press so that
+browsing the shelf while something is playing does not keep stopping the tape. **NEW** starts a
+fresh one and loads it straight away, because you made it in order to record onto it.
 
-The wind keys were latching: press rewind and it rewound until you pressed something else, so
-finding a moment mid-clip meant winding, noticing you had arrived, and pressing play again.
+### Patterns, since there is no colour
 
-They are momentary now. Hold rewind — or keep turning the wheel — and the tape winds; let go and
-it carries on with exactly what it was doing before. If it was playing, it plays. If it was
-stopped, it stops. That is the behaviour people mean by "like a tape recorder", and it is the
-one thing a latching button cannot do.
+A shelf of cassettes is normally told apart by colour and this panel has none. So each tape
+carries a **pattern** on its label instead — plain, stripes, checks, dots, grid, lean, waves,
+chevron — which survives greyscale, survives daylight, and survives being seen out of the corner
+of your eye. **MARK** cycles it.
 
-Both controls run through the same `WindLatch`, so they cannot drift apart in what they resume
-to, and it is free of Android so "what does it go back to" has ten unit tests rather than a
-phone. It never resumes into another wind, never into a recording, and a wind that runs off
-either end of the tape forgets its resume rather than starting playback from an end.
+They are deliberately coarse. A fine hatch and a fine dot are the same thing at 40dp on this
+screen, so each differs in *rhythm* rather than texture. Eight of them: past that they start
+rhyming, and a shelf bigger than eight wants reading by name anyway.
 
-### Titles are places
+The cassette is drawn rather than an image — sharp at any size, no assets to ship — and its reels
+fill the way the real ones do, so a tape with a lot on it looks different from a fresh one before
+you have read a word of it. How full it looks is measured against the longest tape you have,
+because there is no such thing as a full tape.
 
-Clip names were falling back to coordinates whenever the geocoder could not answer. A list of
-clips called `48.8570, 2.3700` tells you where you were only if you go and look it up, which is
-exactly the work this app exists to save.
+### A tape is a folder
 
-Names are now always **somewhere, city** — `Café de Flore, Paris`, `Rue de Lappe, Paris`,
-`Kreuzberg, Berlin`. The most specific named thing the geocoder found wins, then the street it
-sits on, then the neighbourhood. No house numbers, no postcodes, no country. And no
-coordinates: a clip nobody could name is `Somewhere`, which at least reads as a place you have
-been.
+No new machinery and no database. A tape is a directory of clips:
 
-Worth knowing about the ceiling here: Android's `Geocoder` is a reverse geocoder, not a places
-search, so it names what is *at* the fix rather than what is interesting nearby. A café comes
-back when the fix lands on it. Naming the nearest notable thing regardless would mean the Places
-API — a key, an account, and a billable lookup on every recording.
+    tapes/2026-08-17 143205 Trip to Rome/2026-08-17 143912 Trastevere, Rome.wav
 
-### If the wheel still does nothing, it is LightControl
+Filed exactly the way clips are — timestamp first so the shelf sorts by when each tape was
+started, human name after. Renaming a tape renames the directory, which is atomic and moves
+nothing. Copy the store onto a desktop and it reads as itself, with no index to export.
 
-This app cannot fix that from inside, and it is worth stating plainly because both wheel
-gestures are claimed phone-wide by default:
+The pattern is a one-line file inside the folder, and it is the only thing in this app that lives
+outside a filename. It has to be somewhere: derived from the name, a rename would silently
+repaint the tape; put in the folder name, every pattern change would rewrite the tape's identity.
+A folder without one still gets a stable pattern derived from its name, so a tape copied in from
+elsewhere looks like something rather than nothing.
 
-| Gesture | LightControl default | What happens |
-| --- | --- | --- |
-| Bare turn | `unknownAppTurn = BRIGHTNESS` | The turn becomes a brightness step and is consumed |
-| Wheel click | `WheelClick` / Tap → `Torch` | The press lights the torch and is consumed |
+### Everything already recorded moves across
 
-Anything that is not `PassThrough` consumes the key, so neither gesture ever reaches this app.
-`com.gios.` is already in LightControl's scroll-aware list, but that rule still yields brightness
-while the turn mode is set to brightness, and it keeps the click for LightControl regardless.
+Clips used to live in one flat folder. They move onto the shelf on first launch, into a tape
+called **Tape**, stamped with the earliest clip on it so it sorts as the oldest tape — which is
+what it is.
 
-**The one setting that fixes both: give BrightRecorder the "Off" (hands-off) app rule in
-LightControl** — every key goes to the app untouched, which is what Light's own tools get.
-Setting the global turn mode to `PASS THROUGH` fixes the turns but leaves the click on the torch.
+The move is file-by-file `renameTo` inside the same filesystem: no stream, no temporary copy,
+nothing that can half-finish. A file that will not move is left exactly where it is and the old
+folder is kept, so a partial migration loses nothing and finishes itself on the next launch.
+These recordings cannot be made again, so that is the one thing this release was careful about.
+
+### Deleting
+
+`Tapes.delete` refuses a tape with clips still on it, so no call in this app can destroy
+recordings by accident — you empty a tape one clip at a time, through the same confirmation every
+other delete goes through, and only then can the tape go. The last tape cannot go either: the
+machine always has something on it.
+
+### Also
+
+The transport screen shows which tape is loaded, small and to the right — you only look at it
+when you are about to record, but you have to be able to, or a recording lands on whichever tape
+happened to be on and you find out weeks later. MOMENTS is titled with the tape it is listing.
+Which tape was loaded is remembered across launches by folder name rather than by position, so
+adding a tape does not change which one comes back.
 
 ### Under the hood
 
-61 tests. The ten that covered the flywheel are replaced by ten covering what winding resumes
-to, which is the part that is now load-bearing.
+74 tests, up from 61. Thirteen new ones cover the shelf, and most are about not losing
+recordings: that the migration moves every clip and keeps their order, that migrating twice does
+nothing the second time, that renaming keeps a tape's creation stamp and brings its clips with
+it, that renaming onto an existing tape is refused without destroying anything, and that a tape
+with clips on it cannot be deleted.

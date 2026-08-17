@@ -5,6 +5,9 @@ named for where you were and when. Wind through the whole lot with the brightnes
 wheel, forwards or backwards — and hear it as you wind, the way a tape machine lets
 you. Let go and it carries on playing from where you landed.
 
+Keep as many tapes as you like — one for a trip, one for the flat, one for the year —
+each with a name and a pattern on its label, and swipe between them on the shelf.
+
 It is not a voice recorder. There is no transcription, no trimming, no waveform
 editor and no file manager. It records rooms, streets, weather and rain on windows,
 and the only thing it does with them is let you find them again.
@@ -23,14 +26,14 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.2.3** (tag `v1.2.3`).
+**Current release: v1.3.4** (tag `v1.3.4`).
 
 ## Install by hand
 
 Grab the APK from the [latest release](../../releases/latest) and sideload it:
 
 ```bash
-adb install -r BrightRecorder-v1.2.<run>.apk
+adb install -r BrightRecorder-v1.3.<run>.apk
 ```
 
 Every push to `main` publishes a signed release, so `-r` upgrades in place.
@@ -40,11 +43,34 @@ and exactly one APK ships per release, which is what Obtainium and the index nee
 certificate SHA-256 is pinned in `signing-fingerprint.txt` and CI fails on drift — a
 changed certificate otherwise surfaces only as `Failure: Invalid` at install time.
 
+## Tapes
+
+You keep more than one. A tape for a trip, a tape for the flat, a tape for the year — they
+stay separate, and the machine has exactly one on it at a time. Each has a name you give it
+and a **pattern** on its label, which is what colour would be if this panel had any; the
+SHELF screen swipes through them.
+
+A tape is a directory of clips and nothing more:
+
+```
+tapes/2026-08-17 143205 Trip to Rome/2026-08-17 143912 Trastevere, Rome.wav
+```
+
+Filed the way clips are — timestamp first so the shelf sorts by when each tape was started,
+human name after — so renaming is renaming the folder, and the store reads as itself on a
+desktop. The pattern is a one-line file inside the folder, the only thing here that lives
+outside a filename: derived from the name, a rename would repaint the tape; put in the folder
+name, changing it would rewrite the tape's identity.
+
+`Tapes.delete` refuses a tape that still has clips on it. Emptying it one clip at a time is
+the only way, because a recursive delete across a store of recordings is the single
+unrecoverable mistake this app could make.
+
 ## The tape
 
-The idea the whole app rests on is that there are no separate files to play. Every clip
-is butted against the next one in recording order, and the machine addresses all of them
-as **one continuous tape** with a single position running from the first sample to the
+The idea the whole app rests on is that, within a tape, there are no separate files to play.
+Every clip is butted against the next one in recording order, and the machine addresses all of
+them as **one continuous tape** with a single position running from the first sample to the
 last.
 
 That is not a metaphor bolted on afterwards, it is how the code works, and it is what
@@ -268,6 +294,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.3.4 | A shelf of tapes: name them, mark them with a pattern, swipe through them, load the one you want to record onto. Everything already recorded moves onto the first tape. |
 | v1.2.3 | Winding is momentary from both the keys and the wheel, and hands the tape back to what it was doing. Clip titles are places, never coordinates. |
 | v1.1.2 | Makeup gain and a limiter on the record path, so recordings are loud. Location actually gets collected — the permission result was being ignored. Pressing the wheel in plays and stops. |
 | v1.0.1 | First release. |

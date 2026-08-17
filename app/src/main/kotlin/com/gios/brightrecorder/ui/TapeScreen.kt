@@ -80,19 +80,32 @@ fun TapeScreen(state: TapeState, onNeedMicrophone: () -> Unit) {
     }
 }
 
-/** What the head is on, and where the next recording will be filed. */
+/** Which tape is on, what the head is sitting on, and where the next recording will be filed. */
 @Composable
 private fun Header(state: TapeState) {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(
-            when {
-                state.isRecording -> "RECORDING"
-                state.isEmpty -> "NO TAPE"
-                else -> speedLabel(state.rate)
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = if (state.isRecording) Color.White else Dim,
-        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                when {
+                    state.isRecording -> "RECORDING"
+                    state.isEmpty -> "BLANK TAPE"
+                    else -> speedLabel(state.rate)
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (state.isRecording) Color.White else Dim,
+            )
+            Spacer(Modifier.weight(1f))
+            // Which tape this is going onto. Small and to the right, because you only look at it
+            // when you are about to record — but you must be able to look, or a recording lands on
+            // whichever tape happened to be loaded and you find out weeks later.
+            Text(
+                state.tape?.name.orEmpty(),
+                style = MaterialTheme.typography.labelSmall,
+                color = Faint,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(Modifier.height(6.dp))
         Text(
             when {

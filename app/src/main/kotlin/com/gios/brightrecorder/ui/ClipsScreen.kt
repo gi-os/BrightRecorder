@@ -56,7 +56,10 @@ fun ClipsScreen(state: TapeState) {
     if (state.isEmpty) {
         Column(Modifier.fillMaxSize()) {
             ScreenTitle("TAPE")
-            EmptyState("Nothing on the tape yet.\nPress record on the front panel.")
+            EmptyState(
+                "Nothing on ${state.tape?.name ?: "this tape"} yet.\n" +
+                    "Press record on the front panel.",
+            )
         }
         return
     }
@@ -64,7 +67,10 @@ fun ClipsScreen(state: TapeState) {
     val here = state.clip
 
     Column(Modifier.fillMaxSize()) {
-        ScreenTitle("TAPE — ${state.clips.size} ${if (state.clips.size == 1) "MOMENT" else "MOMENTS"}")
+        ScreenTitle(
+            "${state.tape?.name?.uppercase() ?: "TAPE"} — " +
+                "${state.clips.size} ${if (state.clips.size == 1) "MOMENT" else "MOMENTS"}",
+        )
         LazyColumn(Modifier.weight(1f), state = listState) {
             items(state.clips, key = { it.fileName }) { clip ->
                 val selected = clip.fileName == here?.fileName
