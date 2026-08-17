@@ -1,77 +1,61 @@
-## BrightRecorder v1.0 — A tape recorder for moments
+## BrightRecorder v1.1 — Louder, knows where it is, and the wheel plays
 
-**A recorder that files what you record by where you were, and lets you wind through the whole
-lot with the brightness wheel — forwards, backwards, at any speed, hearing it as you go.**
+**Three things reported against v1.0: recordings came back too quiet, clips were all filed under
+"Somewhere", and pressing the wheel in did nothing.**
 
-It is not a voice recorder. There is no transcription, no trimming and no file manager. It
-records rooms, streets, weather, rain on a window, and the only thing it does with them
-afterwards is let you find them again.
+### Recordings are louder
 
-### One tape, not a folder of files
+The microphone is opened as `UNPROCESSED`, which is the right source for recording a room — it
+turns off the noise suppression, the high-pass and the automatic gain control that would
+otherwise be fighting the recording. It is also why everything came back quiet: with the AGC
+gone, nothing was making it loud, so a quiet room recorded honestly and unlistenably.
 
-Press record, press stop, and you get a clip named for where you were and when:
+There is now makeup gain on the way to disk — four times, +12 dB — with a look-ahead limiter
+under it. A flat multiply loud enough to lift a quiet room is far too much for a passing
+motorbike, and a clipped sample is clipped in the file for good, so the limiter holds peaks just
+under full scale instead of letting them square off. Quiet material gets the whole makeup; loud
+material gets whatever fits, smoothly. The limiter is BrightNoise's, which had already been
+beaten into shape against dense transients like heavy rain, where a fast release pumps audibly.
 
-    Bastille, Paris at 17 Aug 2026, 14:32
+Applied on the record path rather than at playback, deliberately, so a clip copied off the phone
+is loud too. The level meter now reads the signal after limiting, so what you see is what is
+being written.
 
-The clips are then butted end to end in recording order and the machine treats all of them as a
-single continuous tape, addressed by one position that runs from the first sample to the last.
+### Clips get a place again
 
-That is the whole design, and everything else falls out of it. Playing to the end of a clip runs
-straight into the next one — no gap, no track change, no next button, because the end of a clip
-is just a position like any other. Winding back past the start of a clip lands in the one before
-it. A position is a sample number, so scrubbing is arithmetic rather than a seek.
+This was a plain bug, not a missing feature. The location lookup and the permission prompt start
+at the same instant, so on the very first recording the lookup ran before any grant existed,
+found no permission, and gave up immediately. Nothing retried it. So the first clip was filed
+under "Somewhere" — and so was every clip after it, because the grant was only ever picked up by
+a later launch of the app.
 
-### The wheel has mass
+The permission result is now acted on: say yes and the lookup starts again against the recording
+still in progress. Nothing about the design changed — the fix is telling the controller that the
+answer arrived.
 
-The brightness wheel shuttles the tape. It is an optical sensor that reports one notch at a time
-and says nothing about how fast it is being turned, so speed is inferred from how thickly the
-notches arrive: each one shoves the tape a little harder and the shove bleeds away continuously.
-Spin quickly and it winds fast. Ease off and it coasts down. Stop and it settles back to whatever
-the transport was doing.
+Still coarse location only, still looked up during the recording rather than before it, and a
+clip with no fix is still filed under "Somewhere" rather than a guess.
 
-The obvious version — one notch moves the tape *n* milliseconds — was tried first and it is
-unusable. Every notch becomes an instant jump, a jump in a waveform is a step, and a step is a
-click, so a fast spin is a stutter of discontinuities rather than a sweep. Driving speed instead
-of position means the head always moves continuously, which is what a tape head does.
+### Press the wheel to play
 
-Rewind and fast-forward are the same mechanism at 4x, with the audio audible. A real transport
-lifted the tape off the head and gave you a mechanical whirr; here the point of winding is to
-hear where you are, and past roughly 5x speech becomes chatter you cannot navigate by.
+The wheel already shuttles the tape, so pressing it in now starts and stops it. Handled on the
+way down so it answers under the thumb, and only on the first event of a press — a held button
+auto-repeats, which would otherwise toggle play a dozen times.
 
-### Winding is dull, not shrill
+One thing to know if it seems dead: **LightControl claims the wheel click phone-wide** and
+deliberately passes only bare turns through to apps. Where it is installed with the click bound,
+that binding wins and this one never sees the event. Unbind the click there and this works.
 
-Playing faster than 1x means skipping samples, and skipping samples is aliasing — content above a
-quarter of the sample rate folds back down as a metallic whistle that is not in the recording.
+Recognising the press also tightened the key handling. The turns come from the optical sensor and
+the press from the board's `gpio-keys`, so scancode trust is now per-code rather than one shared
+set of devices — otherwise a paired Bluetooth keyboard's F8 would start playback and its `r`
+would shuttle the tape.
 
-So instead of picking one sample in four, the engine averages across the ones it crosses. A moving
-average is a low-pass filter and this puts it exactly where the aliasing is created. It is also
-what the physical object did: a tape head reads a finite length of tape at once, so winding fast
-came out dull rather than sharp. The honest emulation and the correct signal processing are the
-same operation.
+### Under the hood
 
-### Where you were
+61 unit tests, up from 54. The new ones pin both halves of the gain, because they pull against
+each other: that a quiet room really does come up by roughly the full makeup, and that nothing
+clips at any input level from 1% to full scale — plus that a loud bang does not leave the
+following minute ducked, and that dense transients do not make the level breathe.
 
-The location lookup runs during the recording, never before it. Pressing record starts the
-microphone in the same frame — a fix takes anywhere from a second to never, and indoors it is
-usually never — so whatever has been found by the time you stop is what the clip is called.
-
-Coarse location only: the title says which part of town you were in, not where you stood. A clip
-with no fix is filed under `Somewhere`, which is an honest label rather than a guess.
-
-### A recording cannot be lost
-
-Samples go to disk as they arrive, and the WAV length field is patched when recording stops. If
-the app dies mid-recording the length is wrong but every sample is already there, so the
-temporary filename carries the start time and the next launch rebuilds the header from the file
-size and files the clip properly. Only the place name is lost, because it died with the process.
-
-Recordings are 22050 Hz 16-bit mono WAV, uncompressed — not for fidelity but because a tape you
-can spin has to be addressable by sample, and compressed audio only decodes forwards from a
-keyframe. It costs 2.6 MB a minute.
-
-### Also in this release
-
-Shake the phone twice and a sheet comes up to file a bug report, carrying the screen you were on,
-the build, free space, heap and the last stack trace. The app reports its own noticed failures
-too, which matters more here than elsewhere: a microphone that never opened looks exactly like a
-microphone recording an empty room.
+Fixes [light-reports] — recordings too quiet, no location on clips, wheel press did nothing.

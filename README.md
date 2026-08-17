@@ -23,7 +23,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.0.1** (tag `v1.0.1`).
+**Current release: v1.1.2** (tag `v1.1.2`).
 
 ## Install by hand
 
@@ -89,6 +89,16 @@ tape head does.
 `Shuttle` is that flywheel, and it is nine lines of arithmetic with no Android in it, so
 how the wheel feels is unit-tested rather than only felt.
 
+**Pressing the wheel in plays and stops.** The wheel is already the transport, so that is the
+one binding that needs no explaining. Be aware that LightControl claims the wheel click across
+the whole phone and passes only bare turns through to apps — where it is installed with the
+click bound, its binding wins and this one never sees the event.
+
+The press is a `gpio-keys` button rather than the optical sensor, so scancode trust is per
+code rather than per device: 66 is only honoured from the board's buttons and 19 and 20 only
+from the sensor. Without that, a paired Bluetooth keyboard's F8 starts playback and its `r`
+shuttles the tape.
+
 ## Winding sounds like winding
 
 Playing faster than 1x means skipping samples, and skipping samples is aliasing: content
@@ -153,6 +163,15 @@ tuned for speech — noise suppression, AGC, a high-pass around 100 Hz — and e
 those is wrong here: this app records rain, traffic and rooms, and a noise suppressor hears
 all of that as noise and removes precisely what was being recorded.
 
+That has one consequence worth stating, because it was reported as a bug in v1.0: with the
+automatic gain control gone, nothing is making the recording loud, so a quiet room comes back
+honest and far too quiet to listen to on a phone speaker. So there is **makeup gain on the way
+to disk** — four times, +12 dB — with a look-ahead limiter under it, holding peaks just below
+full scale rather than letting them square off. Quiet material gets the whole makeup, loud
+material gets whatever fits. It is applied while recording rather than at playback so that a
+clip copied off the phone is loud too, and a clipped sample would be clipped in the file for
+good. `RecordGain.MAKEUP` is the one number to turn if it is still not enough.
+
 ## A recording is never lost
 
 The failure this design is built around is the app dying mid-recording, because these
@@ -205,6 +224,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.1.2 | Makeup gain and a limiter on the record path, so recordings are loud. Location actually gets collected — the permission result was being ignored. Pressing the wheel in plays and stops. |
 | v1.0.1 | First release. |
 
 ## Licence

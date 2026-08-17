@@ -194,6 +194,9 @@ class Recorder(private val dir: File) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val buf = ShortArray(CHUNK)
         val bytes = ByteArray(CHUNK * BYTES_PER_SAMPLE)
+        // One per recording: the limiter carries an envelope and a delay line, and reusing it
+        // across recordings would open a clip with the gain the last one ended on.
+        val gain = RecordGain()
         var written = 0L
         var raf: RandomAccessFile? = null
         try {
@@ -214,12 +217,13 @@ class Recorder(private val dir: File) {
                     if (n < 0) failure = "read from the microphone (code $n)"
                     break
                 }
-                var peak = 0f
+                // Lift the level before it reaches the file. UNPROCESSED gives us the room with
+                // no automatic gain control in the way, which is why it sounds right and also
+                // why it arrives quiet; see [RecordGain]. Done here rather than on playback so
+                // that a clip copied off the phone is loud too.
+                val peak = gain.apply(buf, n)
                 for (i in 0 until n) {
-                    val s = buf[i]
-                    val v = abs(s.toInt()) / 32768f
-                    if (v > peak) peak = v
-                    val u = s.toInt()
+                    val u = buf[i].toInt()
                     bytes[i * 2] = (u and 0xFF).toByte()
                     bytes[i * 2 + 1] = (u shr 8 and 0xFF).toByte()
                 }

@@ -206,11 +206,7 @@ object TapeController {
         scope.launch { e.stop() }
 
         places?.forget()
-        locating?.cancel()
-        locating = scope.launch {
-            places?.locate()
-            publish()
-        }
+        startLocating()
 
         if (!r.start(System.currentTimeMillis())) {
             e.setTransport(Transport.Stopped)
@@ -226,6 +222,34 @@ object TapeController {
         startTicking()
         publish()
         return true
+    }
+
+    /**
+     * Start, or restart, the hunt for a place name for the recording in progress.
+     *
+     * Separate from [record] because it has to be callable again from outside: the location
+     * permission is asked for *while* the first recording is already running, so the first
+     * attempt happens before the grant exists and gives up immediately. Without a second
+     * attempt when the answer arrives, the first clip anyone ever records is filed under
+     * "Somewhere" no matter what they tap, and so is every clip until the app is restarted.
+     */
+    fun startLocating() {
+        locating?.cancel()
+        locating = scope.launch {
+            places?.locate()
+            publish()
+        }
+    }
+
+    /**
+     * The location permission has just been answered. Try again if it was a yes.
+     *
+     * Only while a recording is in progress: a grant that arrives after the clip has been filed
+     * has missed its chance, and the next recording will start its own lookup anyway.
+     */
+    fun onLocationPermissionResult() {
+        if (places?.granted() != true) return
+        if (_state.value.isRecording) startLocating()
     }
 
     /** Stop recording and file the clip. Returns it, or null if nothing was captured. */

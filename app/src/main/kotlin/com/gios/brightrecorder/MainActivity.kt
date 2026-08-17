@@ -62,6 +62,15 @@ class MainActivity : ComponentActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN) wheel.send(-1)
                 return true
             }
+            // Press the wheel in to start and stop the tape. On the way down, so it answers
+            // under the thumb, and only on the first event of a press: a held button
+            // auto-repeats, and without the guard that would toggle play a dozen times.
+            LightKey.WheelClick -> {
+                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                    TapeController.toggle()
+                }
+                return true
+            }
             else -> Unit
         }
         return super.dispatchKeyEvent(event)
@@ -82,13 +91,22 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     /**
-     * Location is asked for once, after the first recording has already started.
+     * Location is asked for while the first recording is already running.
      *
      * Deliberately not a blocker: a clip with no place is still a clip, so a refusal costs the
      * title its first half and nothing else.
+     *
+     * The result is acted on, which it originally was not, and that was the bug that made the
+     * feature look broken. The lookup starts at the same moment as this prompt, so on the very
+     * first recording it runs before any grant exists, finds no permission and gives up in a
+     * microsecond. Nothing retried it, so that clip was filed under "Somewhere" — and so was
+     * every clip after it, because the grant only got picked up by a later launch. Telling the
+     * controller the answer arrived is the whole fix.
      */
     private val requestLocation =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+            TapeController.onLocationPermissionResult()
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

@@ -2,13 +2,21 @@ package com.gios.brightrecorder.hw
 
 import android.view.KeyEvent
 
-/** The wheel's two directions, as they arrive from the sensor. */
+/** The wheel's two directions and its press, as they arrive from the hardware. */
 enum class LightKey {
     /** Wheel turned towards the top of the phone. */
     WheelUp,
 
     /** Wheel turned towards the bottom of the phone. */
     WheelDown,
+
+    /**
+     * Wheel pressed in.
+     *
+     * A different device from the turns: the press is a `gpio-keys` button, the turns are the
+     * optical sensor, which is why the scancode fallback needs its own trusted device name.
+     */
+    WheelClick,
 }
 
 /**
@@ -33,10 +41,15 @@ enum class LightKey {
  * window like any other key, which is why an app that ignores the keycode gets nothing —
  * and why handling it needs no root and no accessibility service.
  *
- * Only the turns are handled here. The wheel click and the camera button belong to
- * LightControl, which owns them across the whole phone and deliberately passes bare turns
- * through to apps like this one, because per-notch scrolling inside the app beats the
- * synthetic finger it would otherwise have to draw.
+ * The turns and the press are handled here; the camera button is not. The press is play/stop,
+ * because in this app the wheel already *is* the transport — it shuttles the tape — so pressing
+ * it in to start and stop is the one binding that needs no explaining.
+ *
+ * Caveat worth knowing before debugging a dead press: LightControl claims the wheel click
+ * phone-wide and deliberately passes only bare *turns* through to apps. When it is installed and
+ * has the click bound, that binding wins and this one never sees the event, because LightControl
+ * is a foreground service with an accessibility grant and this is an ordinary activity. Nothing
+ * here can or should fight that — the fix is to unbind the click in LightControl.
  *
  * `WHEEL_CCW`, `WHEEL_CW` and `WHEEL_CLICK` are not AOSP keycodes; Light added them, so
  * their integer values are Light's to change. Hence two ways in, in order:
@@ -51,18 +64,38 @@ object LightKeys {
     // Linux scancodes, from `getevent -pl`. These are hardware, not software.
     private const val SCAN_WHEEL_UP = 19 // KEY_R
     private const val SCAN_WHEEL_DOWN = 20 // KEY_T
+    private const val SCAN_WHEEL_CLICK = 66 // KEY_F8
 
-    /** The wheel's own sensor. Nothing else may claim these scancodes. */
-    private val trustedDevices = setOf("Pixart pat9126ja")
+    /**
+     * Which physical device is allowed to claim which scancode.
+     *
+     * Per scancode, not one shared set, because the turns and the press come from *different*
+     * devices — the turns from the optical sensor, the press from the board's `gpio-keys` — and a
+     * shared set would let either device claim either code. That matters here: scancode 66 is F8
+     * on a paired Bluetooth keyboard and 19 is `r`, so a loose check turns a keyboard into a
+     * transport control.
+     */
+    private data class Control(val key: LightKey, val device: (String) -> Boolean)
+
+    private val PIXART: (String) -> Boolean = { it == "Pixart pat9126ja" }
+
+    /**
+     * The board's button device. Matched by prefix rather than exactly: the name is the kernel's
+     * and vendors spell it `gpio-keys`, `gpio_keys` and `gpio-keys-wheel` depending on the
+     * devicetree. Nothing else on this phone emits scancode 66, so the looseness costs nothing.
+     */
+    private val GPIO: (String) -> Boolean = { it.startsWith("gpio", ignoreCase = true) }
 
     private val byScanCode = mapOf(
-        SCAN_WHEEL_UP to LightKey.WheelUp,
-        SCAN_WHEEL_DOWN to LightKey.WheelDown,
+        SCAN_WHEEL_UP to Control(LightKey.WheelUp, PIXART),
+        SCAN_WHEEL_DOWN to Control(LightKey.WheelDown, PIXART),
+        SCAN_WHEEL_CLICK to Control(LightKey.WheelClick, GPIO),
     )
 
     private val byKeyCode: Map<Int, LightKey> = buildMap {
         putLabel("WHEEL_CCW", LightKey.WheelUp)
         putLabel("WHEEL_CW", LightKey.WheelDown)
+        putLabel("WHEEL_CLICK", LightKey.WheelClick)
     }
 
     private fun MutableMap<Int, LightKey>.putLabel(label: String, key: LightKey) {
@@ -74,12 +107,12 @@ object LightKeys {
     /** Which control produced [event], or null if it wasn't one of ours. */
     fun of(event: KeyEvent): LightKey? {
         byKeyCode[event.keyCode]?.let { return it }
-        // Either the labels moved or this build doesn't have them. Trust the scancode,
-        // but only from the two devices that physically own these controls — otherwise a
-        // paired keyboard's `r` would scroll the article.
+        // Either the labels moved or this build doesn't have them. Trust the scancode, but only
+        // from the device that physically owns that particular code — otherwise a paired
+        // keyboard's `r` shuttles the tape and its F8 starts playback.
         val device = event.device?.name ?: return null
-        if (device in trustedDevices) return byScanCode[event.scanCode]
-        return null
+        val control = byScanCode[event.scanCode] ?: return null
+        return if (control.device(device)) control.key else null
     }
 
     /** True if this build maps the wheel labels at all — useful for a settings readout. */
