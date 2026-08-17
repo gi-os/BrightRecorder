@@ -28,8 +28,10 @@ import kotlin.coroutines.resume
  * lost because the sky was not visible.
  *
  * The fallback chain is ordered by what is useful to read weeks later rather than by precision:
- * a neighbourhood beats a city, a city beats a region, and coordinates beat nothing. The one
- * thing it will not do is guess — [Naming.NOWHERE] is the answer when there is no answer.
+ * a named place beats the street it is on, a street beats a neighbourhood, and a neighbourhood
+ * beats a city. What it will never do is fall back to coordinates or to a guess — a clip nobody
+ * could name is [Naming.NOWHERE], which reads as somewhere you have been rather than as a lookup
+ * you now have to do yourself.
  */
 class Places(private val context: Context) {
 
@@ -57,9 +59,8 @@ class Places(private val context: Context) {
     /**
      * Find out where we are, as well as can be managed inside [BUDGET_MS].
      *
-     * Safe to call more than once and safe to cancel. Each stage that succeeds updates [current]
-     * immediately rather than waiting for the whole chain, so a slow reverse geocode still leaves
-     * the clip named with coordinates instead of nothing.
+     * Safe to call more than once and safe to cancel — the permission is granted while the first
+     * recording is already running, so it is called again as soon as the answer arrives.
      */
     suspend fun locate() {
         if (!granted()) return
@@ -69,8 +70,11 @@ class Places(private val context: Context) {
             withTimeout(BUDGET_MS) { fix(manager) }
         }.getOrElse { if (it is TimeoutCancellationException) null else throw it } ?: return
 
-        // Coordinates first, so an offline phone still labels the clip with somewhere.
-        current = coordinates(fix)
+        // A name or nothing at all. Coordinates used to go in here as a fallback for when the
+        // geocoder could not answer, and they turned out to be worse than nothing: a list of clips
+        // titled "48.8570, 2.3700" tells you where you were only if you go and look it up, which
+        // is precisely the work this app exists to save. A clip nobody could name is honestly
+        // [Naming.NOWHERE], and that at least reads as a place you have been.
         describe(fix)?.let { current = it }
     }
 
@@ -135,10 +139,6 @@ class Places(private val context: Context) {
             }
         }
 
-    /** "48.8570, 2.3700" — the answer when there is no name for the place. */
-    private fun coordinates(fix: Location): String =
-        String.format(Locale.US, "%.4f, %.4f", fix.latitude, fix.longitude)
-
     /** The best human name for [fix], or null if the geocoder has nothing. */
     private suspend fun describe(fix: Location): String? {
         if (!Geocoder.isPresent()) return null
@@ -175,20 +175,38 @@ class Places(private val context: Context) {
         }
 
     /**
-     * An address reduced to the shortest thing that would mean something to you later.
+     * An address reduced to the nearest thing you would actually say out loud.
      *
-     * "Bastille, Paris" rather than "Place de la Bastille, 75011 Paris, France": a street number
-     * is more precision than a memory needs and it makes the clip title too long to read in a
-     * list. The country is left off entirely — you know which country you were in.
+     * The shape is always **somewhere, city** — "Café de Flore, Paris", "Rue de Lappe, Paris",
+     * "Kreuzberg, Berlin" — because that is how a person names where they were. Never a street
+     * number, never a postcode, never the country: precision past the corner you were standing on
+     * is precision a memory has no use for, and it makes the title too long to read in a list.
+     *
+     * The order of preference is deliberate. [Address.featureName] is the most specific thing the
+     * geocoder found, and where the data has one it is a named place — the café, the station, the
+     * park — which beats the street it sits on. Failing that the street, then the neighbourhood.
+     *
+     * Worth knowing about the limits of this: Android's `Geocoder` is a *reverse geocoder*, not a
+     * places search, so it names what is at the coordinates rather than what is interesting
+     * nearby. A café comes back only when the fix lands on it. Real "what is around here" naming
+     * would mean the Places API — a key, an account, and every recording becoming a billable
+     * lookup — which is a different app from this one.
      */
     private fun name(address: Address): String? {
         val city = address.locality ?: address.subAdminArea ?: address.adminArea
-        val area = address.subLocality ?: address.thoroughfare
+
+        // A featureName that is just a house number is not a place name; the street below it is.
+        val feature = address.featureName
+            ?.takeIf { f -> f.isNotBlank() && f.any { it.isLetter() } }
+            ?.takeIf { !it.equals(city, ignoreCase = true) }
+            ?.takeIf { !it.equals(address.postalCode, ignoreCase = true) }
+
+        val spot = feature ?: address.thoroughfare ?: address.subLocality
         return when {
-            area != null && city != null && !area.equals(city, ignoreCase = true) -> "$area, $city"
+            spot != null && city != null && !spot.equals(city, ignoreCase = true) -> "$spot, $city"
             city != null -> city
-            area != null -> area
-            else -> address.countryName
+            spot != null -> spot
+            else -> null
         }?.takeIf { it.isNotBlank() }
     }
 

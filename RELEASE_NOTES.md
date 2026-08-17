@@ -1,61 +1,72 @@
-## BrightRecorder v1.1 — Louder, knows where it is, and the wheel plays
+## BrightRecorder v1.2 — Winding works like winding
 
-**Three things reported against v1.0: recordings came back too quiet, clips were all filed under
-"Somewhere", and pressing the wheel in did nothing.**
+**Rewind and fast-forward are momentary now, from the keys and from the wheel, and letting go
+hands the tape straight back to whatever it was doing. Clip titles are places, never
+coordinates.**
 
-### Recordings are louder
+### The wheel winds, and keeps winding
 
-The microphone is opened as `UNPROCESSED`, which is the right source for recording a room — it
-turns off the noise suppression, the high-pass and the automatic gain control that would
-otherwise be fighting the recording. It is also why everything came back quiet: with the AGC
-gone, nothing was making it loud, so a quiet room recorded honestly and unlistenably.
+Turning the wheel back rewinds. Turning it forward fast-forwards. It keeps winding as long as
+you keep turning and lets go 350 ms after the last notch — long enough to ride over the gaps in
+an unhurried turn, short enough that stopping feels like stopping.
 
-There is now makeup gain on the way to disk — four times, +12 dB — with a look-ahead limiter
-under it. A flat multiply loud enough to lift a quiet room is far too much for a passing
-motorbike, and a clipped sample is clipped in the file for good, so the limiter holds peaks just
-under full scale instead of letting them square off. Quiet material gets the whole makeup; loud
-material gets whatever fits, smoothly. The limiter is BrightNoise's, which had already been
-beaten into shape against dense transients like heavy rain, where a fast release pumps audibly.
+What was there before was a flywheel: the app inferred a *speed* from how thickly the notches
+arrived, so the tape had mass, coasted, and settled back on its own. It reads well written down
+and it is wrong in the hand. What you want from a wheel on a tape machine is to wind until you
+get there — not to nudge a speed and then wait for it to decay. The flywheel and its tests are
+gone rather than left switched off.
 
-Applied on the record path rather than at playback, deliberately, so a clip copied off the phone
-is loud too. The level meter now reads the signal after limiting, so what you see is what is
-being written.
+### Letting go carries on playing
 
-### Clips get a place again
+The wind keys were latching: press rewind and it rewound until you pressed something else, so
+finding a moment mid-clip meant winding, noticing you had arrived, and pressing play again.
 
-This was a plain bug, not a missing feature. The location lookup and the permission prompt start
-at the same instant, so on the very first recording the lookup ran before any grant existed,
-found no permission, and gave up immediately. Nothing retried it. So the first clip was filed
-under "Somewhere" — and so was every clip after it, because the grant was only ever picked up by
-a later launch of the app.
+They are momentary now. Hold rewind — or keep turning the wheel — and the tape winds; let go and
+it carries on with exactly what it was doing before. If it was playing, it plays. If it was
+stopped, it stops. That is the behaviour people mean by "like a tape recorder", and it is the
+one thing a latching button cannot do.
 
-The permission result is now acted on: say yes and the lookup starts again against the recording
-still in progress. Nothing about the design changed — the fix is telling the controller that the
-answer arrived.
+Both controls run through the same `WindLatch`, so they cannot drift apart in what they resume
+to, and it is free of Android so "what does it go back to" has ten unit tests rather than a
+phone. It never resumes into another wind, never into a recording, and a wind that runs off
+either end of the tape forgets its resume rather than starting playback from an end.
 
-Still coarse location only, still looked up during the recording rather than before it, and a
-clip with no fix is still filed under "Somewhere" rather than a guess.
+### Titles are places
 
-### Press the wheel to play
+Clip names were falling back to coordinates whenever the geocoder could not answer. A list of
+clips called `48.8570, 2.3700` tells you where you were only if you go and look it up, which is
+exactly the work this app exists to save.
 
-The wheel already shuttles the tape, so pressing it in now starts and stops it. Handled on the
-way down so it answers under the thumb, and only on the first event of a press — a held button
-auto-repeats, which would otherwise toggle play a dozen times.
+Names are now always **somewhere, city** — `Café de Flore, Paris`, `Rue de Lappe, Paris`,
+`Kreuzberg, Berlin`. The most specific named thing the geocoder found wins, then the street it
+sits on, then the neighbourhood. No house numbers, no postcodes, no country. And no
+coordinates: a clip nobody could name is `Somewhere`, which at least reads as a place you have
+been.
 
-One thing to know if it seems dead: **LightControl claims the wheel click phone-wide** and
-deliberately passes only bare turns through to apps. Where it is installed with the click bound,
-that binding wins and this one never sees the event. Unbind the click there and this works.
+Worth knowing about the ceiling here: Android's `Geocoder` is a reverse geocoder, not a places
+search, so it names what is *at* the fix rather than what is interesting nearby. A café comes
+back when the fix lands on it. Naming the nearest notable thing regardless would mean the Places
+API — a key, an account, and a billable lookup on every recording.
 
-Recognising the press also tightened the key handling. The turns come from the optical sensor and
-the press from the board's `gpio-keys`, so scancode trust is now per-code rather than one shared
-set of devices — otherwise a paired Bluetooth keyboard's F8 would start playback and its `r`
-would shuttle the tape.
+### If the wheel still does nothing, it is LightControl
+
+This app cannot fix that from inside, and it is worth stating plainly because both wheel
+gestures are claimed phone-wide by default:
+
+| Gesture | LightControl default | What happens |
+| --- | --- | --- |
+| Bare turn | `unknownAppTurn = BRIGHTNESS` | The turn becomes a brightness step and is consumed |
+| Wheel click | `WheelClick` / Tap → `Torch` | The press lights the torch and is consumed |
+
+Anything that is not `PassThrough` consumes the key, so neither gesture ever reaches this app.
+`com.gios.` is already in LightControl's scroll-aware list, but that rule still yields brightness
+while the turn mode is set to brightness, and it keeps the click for LightControl regardless.
+
+**The one setting that fixes both: give BrightRecorder the "Off" (hands-off) app rule in
+LightControl** — every key goes to the app untouched, which is what Light's own tools get.
+Setting the global turn mode to `PASS THROUGH` fixes the turns but leaves the click on the torch.
 
 ### Under the hood
 
-61 unit tests, up from 54. The new ones pin both halves of the gain, because they pull against
-each other: that a quiet room really does come up by roughly the full makeup, and that nothing
-clips at any input level from 1% to full scale — plus that a loud bang does not leave the
-following minute ducked, and that dense transients do not make the level breathe.
-
-Fixes [light-reports] — recordings too quiet, no location on clips, wheel press did nothing.
+61 tests. The ten that covered the flywheel are replaced by ten covering what winding resumes
+to, which is the part that is now load-bearing.

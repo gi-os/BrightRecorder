@@ -51,11 +51,11 @@ import kotlin.math.sin
  */
 @Composable
 fun TapeScreen(state: TapeState, onNeedMicrophone: () -> Unit) {
-    // The wheel shuttles the tape. One notch is one shove; a burst arrives as a count, and each
-    // one has to be delivered separately or a fast spin would count as a single nudge.
+    // Turning the wheel is holding a wind key: back rewinds, forward fast-forwards, and the tape
+    // keeps winding until the notches stop arriving. How many notches are in a burst does not
+    // matter — the wind runs at one speed — so only the direction is passed on.
     WheelNotches(active = !state.isRecording) { notches ->
-        val direction = if (notches < 0) -1 else 1
-        repeat(abs(notches).coerceAtMost(8)) { TapeController.notch(direction) }
+        TapeController.windFromWheel(if (notches < 0) -1 else 1)
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -292,22 +292,23 @@ private fun LevelMeter(level: Float) {
 /**
  * The keys.
  *
- * Rewind and fast-forward latch rather than repeat, which is what the mechanical originals did:
- * you press wind and it winds until you press something else. Play doubles as stop, because a
- * separate stop key would sit unused nine times out of ten and these targets are big.
+ * Rewind and fast-forward are momentary: they wind while held and hand the tape straight back to
+ * whatever it was doing when released, so winding out of the middle of a clip and letting go
+ * carries on playing without a second press. Play doubles as stop, because a separate stop key
+ * would sit unused nine times out of ten and these targets are big.
  */
 @Composable
 private fun Keys(state: TapeState, onNeedMicrophone: () -> Unit) {
     val hasTape = !state.isEmpty
     Row(Modifier.fillMaxWidth()) {
-        TransportKey(
+        HoldKey(
             glyph = "<<",
             held = state.transport == Transport.Rewinding,
             enabled = hasTape && !state.isRecording,
             modifier = Modifier.weight(1f),
-        ) {
-            if (state.transport == Transport.Rewinding) TapeController.stop() else TapeController.rewind()
-        }
+            onPress = { TapeController.beginWind(back = true) },
+            onRelease = { TapeController.endWind() },
+        )
         TransportKey(
             glyph = if (state.transport == Transport.Playing) "||" else ">",
             held = state.transport == Transport.Playing,
@@ -316,18 +317,14 @@ private fun Keys(state: TapeState, onNeedMicrophone: () -> Unit) {
         ) {
             TapeController.toggle()
         }
-        TransportKey(
+        HoldKey(
             glyph = ">>",
             held = state.transport == Transport.FastForwarding,
             enabled = hasTape && !state.isRecording,
             modifier = Modifier.weight(1f),
-        ) {
-            if (state.transport == Transport.FastForwarding) {
-                TapeController.stop()
-            } else {
-                TapeController.fastForward()
-            }
-        }
+            onPress = { TapeController.beginWind(back = false) },
+            onRelease = { TapeController.endWind() },
+        )
         TransportKey(
             // A filled circle for record, the one symbol on a tape machine nobody has to learn.
             glyph = if (state.isRecording) "■" else "●",

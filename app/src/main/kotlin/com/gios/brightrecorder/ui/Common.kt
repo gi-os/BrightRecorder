@@ -2,6 +2,7 @@ package com.gios.brightrecorder.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -126,6 +128,50 @@ fun TabBar(selected: Int, labels: List<String>, onSelect: (Int) -> Unit) {
                 }
             }
         }
+    }
+}
+
+/**
+ * A wind key: it winds for exactly as long as it is held down.
+ *
+ * Momentary rather than latching, which is the whole difference between this and a media player.
+ * On the machine this imitates you hold rewind, and the instant you let go the tape carries on
+ * doing what it was doing before. A latching button cannot do that — with a latch you have to
+ * watch for the tape arriving and then press play yourself.
+ *
+ * `tryAwaitRelease` returning false means the gesture was cancelled rather than lifted, which is
+ * a finger sliding off the key. Both end the wind; anything else leaves the tape winding with
+ * nothing holding it.
+ */
+@Composable
+fun HoldKey(
+    glyph: String,
+    held: Boolean = false,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    onPress: () -> Unit,
+    onRelease: () -> Unit,
+) {
+    val fg = when {
+        !enabled -> Faint
+        held -> Color.Black
+        else -> Color.White
+    }
+    Box(
+        modifier
+            .height(56.dp)
+            .background(if (held && enabled) Color.White else Color.Black)
+            .pointerInput(enabled) {
+                if (!enabled) return@pointerInput
+                detectTapGestures(onPress = {
+                    onPress()
+                    tryAwaitRelease()
+                    onRelease()
+                })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(glyph, style = MaterialTheme.typography.titleMedium, color = fg)
     }
 }
 

@@ -11,10 +11,13 @@ import kotlin.math.abs
  * The transport. One thread, one AudioTrack, one fractional position on the tape.
  *
  * The loop is the entire behaviour of the app in about thirty lines: read the rate, read a
- * sample at the current position, move the position by the rate, repeat. Everything the user
- * can do is a change to `rate` — playing is 1, rewinding is -4, the jog wheel adds to it, and
- * stopped is 0. There is no separate rewind routine and no scrub mode, because at this level
- * they are the same operation at different speeds and signs.
+ * sample at the current position, move the position by the rate, repeat. Everything the user can
+ * do is a change to [Transport] — playing is 1, rewinding is -4, fast-forward is 4, stopped is 0.
+ * There is no separate rewind routine, because at this level winding and playing are the same
+ * operation at different speeds and signs.
+ *
+ * Which transport is running, and what winding returns to when it ends, is not decided here —
+ * that is [WindLatch], driven by the keys and the wheel from the controller.
  *
  * That is also why crossing from one clip into the next needs no code here. The position is a
  * number on a tape that [Timeline] has already made continuous, so the end of a clip is a
@@ -32,9 +35,6 @@ import kotlin.math.abs
  * turning.
  */
 class TapeEngine(private val dir: File) {
-
-    /** Wheel and transport, read every block. */
-    val shuttle = Shuttle()
 
     @Volatile
     var transport: Transport = Transport.Stopped
@@ -90,14 +90,7 @@ class TapeEngine(private val dir: File) {
     }
 
     fun setTransport(next: Transport) {
-        // A wind that reaches the end and stops should not then coast on a spin banked up before
-        // it, and a new transport is a deliberate act that supersedes whatever the wheel was doing.
-        if (next == Transport.Stopped || next == Transport.Recording) shuttle.still()
         transport = next
-    }
-
-    fun notch(direction: Int) {
-        shuttle.notch(direction)
     }
 
     // ------------------------------------------------------------------ thread
@@ -142,8 +135,9 @@ class TapeEngine(private val dir: File) {
             )
             .setBufferSizeInBytes(minBuf * 2)
             .setTransferMode(AudioTrack.MODE_STREAM)
-            // A jog wheel is a physical control and latency is felt directly, so this asks for
-            // the low-latency path rather than the power-saving one the other apps use.
+            // The transport is driven by physical controls — the wind keys and the wheel — and
+            // latency between a press and the tape moving is felt directly, so this asks for the
+            // low-latency path rather than the power-saving one the other apps use.
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
 
@@ -153,7 +147,6 @@ class TapeEngine(private val dir: File) {
         var head: TapeHead? = null
         var headFor: Timeline? = null
         var gain = 0f
-        val blockSeconds = BLOCK / SAMPLES_PER_SECOND
 
         track.play()
         try {
@@ -167,7 +160,7 @@ class TapeEngine(private val dir: File) {
                 val reader = head!!
 
                 val mode = transport
-                val rate = shuttle.rate(mode)
+                val rate = mode.baseRate
                 // Recording owns the audio device, so the loop idles rather than fighting it for
                 // the speaker — and playing the tape into the microphone would be a feedback loop.
                 val silent = mode == Transport.Recording || t.isEmpty
@@ -188,8 +181,8 @@ class TapeEngine(private val dir: File) {
 
                 // Silent means the tape is not ours to move: recording owns the transport, and an
                 // empty tape has no positions. A *stopped* tape is not silent in this sense — its
-                // rate is zero, so the position simply does not change, and the moment the wheel
-                // is turned it starts moving again without any special case here.
+                // rate is zero, so the position simply does not change, and starting a wind moves
+                // it again without any special case here.
                 if (!silent) {
                     val end = t.samples.toDouble()
                     when {
@@ -204,8 +197,6 @@ class TapeEngine(private val dir: File) {
                         else -> position = p
                     }
                 }
-
-                shuttle.advance(blockSeconds)
 
                 var written = 0
                 while (written < BLOCK && running) {

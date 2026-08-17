@@ -12,6 +12,7 @@ import com.gios.brightrecorder.tape.Recorder
 import com.gios.brightrecorder.tape.SAMPLES_PER_SECOND
 import com.gios.brightrecorder.tape.TapeEngine
 import com.gios.brightrecorder.tape.Transport
+import com.gios.brightrecorder.tape.WindLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +33,6 @@ data class TapeState(
     val total: Long = 0L,
     /** Signed tape speed, so the UI can show which way and how fast. */
     val rate: Float = 0f,
-    val shuttling: Boolean = false,
     /** Samples captured so far by a recording in progress. */
     val recorded: Long = 0L,
     val level: Float = 0f,
@@ -126,11 +126,10 @@ object TapeController {
         set(Transport.Playing)
     }
 
-    fun stop() = set(Transport.Stopped)
-
-    fun rewind() = set(Transport.Rewinding)
-
-    fun fastForward() = set(Transport.FastForwarding)
+    fun stop() {
+        wind.cancel()
+        set(Transport.Stopped)
+    }
 
     fun toggle() = if (_state.value.transport == Transport.Playing) stop() else play()
 
@@ -138,16 +137,79 @@ object TapeController {
         val e = engine ?: return
         if (transport != Transport.Stopped && e.tape.isEmpty) return
         e.setTransport(transport)
-        if (transport == Transport.Stopped) {
-            // The engine thread is left running while the wheel still has spin to bleed off:
-            // stopping it mid-coast would cut the sound instead of letting the tape settle.
-            startTicking()
-        } else {
+        if (transport != Transport.Stopped) {
             e.start()
             startService()
-            startTicking()
         }
+        startTicking()
         publish()
+    }
+
+    // --------------------------------------------------------------------- winding
+
+    /**
+     * Winding, from a key or from the wheel.
+     *
+     * Both controls are the same gesture — hold to wind, let go to carry on — so both go through
+     * one [WindLatch] and cannot drift apart in what they resume to.
+     */
+    private val wind = WindLatch()
+
+    /** Ends a wheel wind once the notches stop arriving. See [windFromWheel]. */
+    private var wheelIdle: Job? = null
+
+    /**
+     * Press and hold a wind key. Release with [endWind].
+     *
+     * Momentary rather than latching, which is the whole difference between this and a media
+     * player: on a tape machine you hold rewind, and the instant you let go the tape carries on
+     * doing what it was doing before — playing if it was playing. You never press play again.
+     */
+    fun beginWind(back: Boolean) {
+        val e = engine ?: return
+        if (_state.value.isRecording || e.tape.isEmpty) return
+        val to = if (back) Transport.Rewinding else Transport.FastForwarding
+        set(wind.begin(from = e.transport, wind = to))
+    }
+
+    /** Let go of a wind key: back to whatever it interrupted. */
+    fun endWind() {
+        wheelIdle?.cancel()
+        if (!wind.isWinding) return
+        val resume = wind.end()
+        // Resuming into play at the very end of the tape would start and immediately stop, so
+        // treat that as having played to the end — which is what it is.
+        val e = engine
+        if (resume == Transport.Playing && e != null && e.position >= e.tape.samples.toDouble()) {
+            set(Transport.Stopped)
+        } else {
+            set(resume)
+        }
+    }
+
+    /**
+     * One notch of the wheel: wind in that direction, and keep winding while the notches keep
+     * coming.
+     *
+     * Turning the wheel *is* holding a wind key — turn back to rewind, forward to fast-forward,
+     * stop turning to let go — so it arms a timer that ends the wind [WHEEL_IDLE_MS] after the
+     * last notch. The sensor fires every ~35 ms while it is moving, so that window is long enough
+     * to ride over the gaps in an unhurried turn and short enough that stopping feels like
+     * stopping.
+     *
+     * A direction change ends the current wind and starts the other one, which is what turning
+     * the wheel the other way should obviously do.
+     */
+    fun windFromWheel(direction: Int) {
+        val e = engine ?: return
+        if (_state.value.isRecording || e.tape.isEmpty) return
+        val to = if (direction < 0) Transport.Rewinding else Transport.FastForwarding
+        set(wind.begin(from = e.transport, wind = to))
+        wheelIdle?.cancel()
+        wheelIdle = scope.launch {
+            delay(WHEEL_IDLE_MS)
+            endWind()
+        }
     }
 
     fun skipClip(count: Int) {
@@ -168,22 +230,6 @@ object TapeController {
         publish()
     }
 
-    /**
-     * One notch of the jog wheel.
-     *
-     * Passed straight through to the engine with no filtering — the guard against a stray brush
-     * of the wheel is in the UI layer, where it can be told whether a screen wants the wheel at
-     * all. Spinning the wheel also starts the audio thread, because scrubbing a stopped tape is
-     * how you find a moment and it has to be audible.
-     */
-    fun notch(direction: Int) {
-        val e = engine ?: return
-        if (_state.value.isRecording || e.tape.isEmpty) return
-        e.notch(direction)
-        e.start()
-        startService()
-        startTicking()
-    }
 
     // ------------------------------------------------------------------ recording
 
@@ -202,6 +248,10 @@ object TapeController {
         // output in the same block, which is what stops the tape playing into the microphone; the
         // render thread is then torn down off this thread, because joining it here would block the
         // record button for as long as a block takes to drain.
+        // Whatever the wind was going to resume into is meaningless now: this recording will be
+        // filed when it stops, and an armed resume would start the tape playing on top of it.
+        wind.cancel()
+        wheelIdle?.cancel()
         e.setTransport(Transport.Recording)
         scope.launch { e.stop() }
 
@@ -309,6 +359,9 @@ object TapeController {
      * the ticker publish.
      */
     private fun onRanOff(atStart: Boolean) {
+        // The tape ran out from under the wind, so there is nothing to let go of and nothing to
+        // resume into. Without this, releasing the key afterwards would start playing from an end.
+        wind.cancel()
         engine?.setTransport(Transport.Stopped)
         if (!atStart) engine?.seek(engine?.tape?.samples ?: 0L)
     }
@@ -320,7 +373,7 @@ object TapeController {
                 publish()
                 val s = _state.value
                 // Stop polling once everything has come to rest, including the wheel's coast.
-                val moving = s.isRecording || s.transport != Transport.Stopped || s.shuttling
+                val moving = s.isRecording || s.transport != Transport.Stopped
                 if (!moving) break
                 delay(TICK_MS)
             }
@@ -340,8 +393,7 @@ object TapeController {
             transport = if (r?.isRecording == true) Transport.Recording else e?.transport ?: Transport.Stopped,
             position = e?.position?.toLong() ?: 0L,
             total = tape?.samples ?: 0L,
-            rate = e?.let { it.shuttle.rate(it.transport) } ?: 0f,
-            shuttling = e?.shuttle?.isShuttling == true,
+            rate = e?.transport?.baseRate ?: 0f,
             recorded = r?.samples ?: 0L,
             level = r?.level ?: 0f,
             place = places?.current ?: Naming.NOWHERE,
@@ -375,6 +427,15 @@ object TapeController {
         }
     }
 
-    /** Roughly 30 fps while moving. The needle and the counter both read from this. */
+    /** Roughly 30 fps while moving. The reels and the counter both read from this. */
     private const val TICK_MS = 33L
+
+    /**
+     * How long after the last notch a wheel wind ends.
+     *
+     * The sensor fires every ~35 ms while the wheel is moving, so this has to ride over the gaps
+     * in an unhurried turn without making a deliberate stop feel sticky. 350 ms is about ten
+     * notches' worth of silence.
+     */
+    private const val WHEEL_IDLE_MS = 350L
 }

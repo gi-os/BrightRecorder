@@ -2,8 +2,8 @@
 
 A tape recorder for the **Light Phone III**. Record a moment, and it becomes a clip
 named for where you were and when. Wind through the whole lot with the brightness
-wheel, forwards or backwards, at any speed — and hear it as you wind, the way a tape
-machine lets you.
+wheel, forwards or backwards — and hear it as you wind, the way a tape machine lets
+you. Let go and it carries on playing from where you landed.
 
 It is not a voice recorder. There is no transcription, no trimming, no waveform
 editor and no file manager. It records rooms, streets, weather and rain on windows,
@@ -23,14 +23,14 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.1.2** (tag `v1.1.2`).
+**Current release: v1.2.3** (tag `v1.2.3`).
 
 ## Install by hand
 
 Grab the APK from the [latest release](../../releases/latest) and sideload it:
 
 ```bash
-adb install -r BrightRecorder-v1.0.<run>.apk
+adb install -r BrightRecorder-v1.2.<run>.apk
 ```
 
 Every push to `main` publishes a signed release, so `-r` upgrades in place.
@@ -66,7 +66,9 @@ one signed number.
 | `-4.0` | Rewind, audible |
 | `4.0` | Fast forward, audible |
 | `0` | Stopped |
-| anything else | The wheel, shuttling by hand |
+
+Winding is the same operation as playing, at four times the speed and — for rewind — with
+the sign flipped. There is no separate rewind routine anywhere in the app.
 
 ## The wheel
 
@@ -74,30 +76,59 @@ The LPIII's brightness wheel is a `Pixart pat9126ja` optical sensor that emits o
 event per notch, roughly every 35 ms while it is turning. It reports notches, not
 position, and it says nothing about how fast it is being turned.
 
-So speed is inferred from how thickly the notches arrive. Each one shoves the tape a
-little harder in its direction and the shove bleeds away continuously — spin quickly and
-the shoves arrive faster than they decay, ease off and it coasts down, stop and it settles
-back to whatever the transport was doing. A hard spin reaches about 5x; an unhurried one
-sits near 1.4x, which is the speed you want for finding a word.
+**Turning the wheel is holding a wind key.** Turn it back and the tape rewinds; turn it
+forward and it fast-forwards; stop turning and it lets go. It keeps winding as long as the
+notches keep arriving, and ends 350 ms after the last one — long enough to ride over the
+gaps in an unhurried turn, short enough that stopping feels like stopping.
 
-The tape has mass, in other words, and that is deliberate. The obvious implementation —
-one notch moves the tape *n* milliseconds — was the first one tried and it is unusable:
-every notch becomes an instant jump, a jump in a waveform is a step, and a step is a
-click. Driving *speed* means the read position always moves continuously, which is what a
-tape head does.
-
-`Shuttle` is that flywheel, and it is nine lines of arithmetic with no Android in it, so
-how the wheel feels is unit-tested rather than only felt.
+That replaced a flywheel, which was the wrong idea. The first version inferred a *speed*
+from how thickly the notches arrived, so the tape had mass and coasted; it was pleasant in
+the abstract and wrong in the hand, because the thing you want from a wheel on a tape
+machine is to wind until you get there, not to nudge a speed and wait for it to decay.
 
 **Pressing the wheel in plays and stops.** The wheel is already the transport, so that is the
-one binding that needs no explaining. Be aware that LightControl claims the wheel click across
-the whole phone and passes only bare turns through to apps — where it is installed with the
-click bound, its binding wins and this one never sees the event.
+one binding that needs no explaining.
+
+> **LightControl owns the wheel by default, and will swallow both of these.** Bare turns
+> become brightness (`unknownAppTurn` defaults to `BRIGHTNESS`), and the click is bound to the
+> torch — and anything that is not `PassThrough` consumes the key, so neither reaches this app.
+> The fix is one setting: give BrightRecorder the **Off / hands-off** app rule in LightControl,
+> which passes every key through untouched. See "Winding and the wheel" below.
 
 The press is a `gpio-keys` button rather than the optical sensor, so scancode trust is per
 code rather than per device: 66 is only honoured from the board's buttons and 19 and 20 only
 from the sensor. Without that, a paired Bluetooth keyboard's F8 starts playback and its `r`
-shuttles the tape.
+winds the tape.
+
+## Winding, and getting the wheel past LightControl
+
+Rewind and fast-forward are **momentary**, from either control. Hold the key — or keep turning
+the wheel — and the tape winds; let go and it carries straight on with whatever it was doing
+before. Wind out of the middle of a clip while playing, let go, and it keeps playing from where
+you landed. You never press play again, which is the entire point and the thing a latching
+button cannot do.
+
+`WindLatch` is what remembers the interrupted state, and it is deliberately free of Android so
+that "what does it go back to" has a unit test. It never resumes into another wind, and never
+into a recording — a recording is filed the moment it stops, so there is nothing to go back to.
+
+**If the wheel does nothing in this app, it is LightControl, not this app.** Its defaults claim
+both gestures phone-wide:
+
+| Gesture | LightControl default | Effect here |
+|---|---|---|
+| Bare turn | `unknownAppTurn = BRIGHTNESS` | Turn is converted to a brightness step and consumed |
+| Wheel click | `WheelClick` / Tap → `Torch` | Press lights the torch and is consumed |
+
+`com.gios.` is already in LightControl's `scrollAwarePrefixes`, so this app resolves to
+`ScrollThrough` — but that still yields `Brightness` while the turn mode is set to brightness,
+and `ScrollThrough` keeps the click for LightControl either way.
+
+The setting that fixes both at once is the per-app rule **Off** ("hands off — every key goes to
+the app untouched", which is what Light's own tools get). That returns
+`Behaviour(bareTurn = PassThrough, buttonsActive = false)`, so turns and the click both arrive
+here. Setting the global turn mode to `PASS THROUGH` fixes the turns alone but leaves the click
+on the torch.
 
 ## Winding sounds like winding
 
@@ -140,9 +171,22 @@ tape off the phone and back loses nothing.
 The location lookup runs **during** the recording, never before it. Pressing record starts
 the microphone in the same frame; a fix takes anywhere from a second to never, and indoors
 it is usually never. Whatever has been found by the time you stop is what the clip is
-called, and a clip with no fix is filed under `Somewhere`, which is an honest label rather
-than a guess. Coarse location only — the title says which part of town, not where you
-stood.
+called. Coarse location only — the title says which part of town, not where you stood.
+
+The name is always **somewhere, city** — `Café de Flore, Paris`, `Rue de Lappe, Paris`,
+`Kreuzberg, Berlin` — because that is how a person says where they were. The most specific
+named thing the geocoder found wins, then the street, then the neighbourhood. Never a house
+number, never a postcode, never the country.
+
+**Never coordinates.** They used to be the fallback when the geocoder could not answer, and
+they are worse than nothing: a list of clips titled `48.8570, 2.3700` tells you where you
+were only if you go and look it up, which is the work this app exists to save. A clip nobody
+could name is filed under `Somewhere`, which at least reads as a place you have been.
+
+One limit worth knowing: Android's `Geocoder` is a reverse geocoder, not a places search, so
+it names what is *at* the fix rather than what is interesting nearby. A café comes back when
+the fix lands on it. Naming the nearest notable thing would mean the Places API — a key, an
+account, and a billable lookup per recording — which is a different app from this one.
 
 ## Why uncompressed
 
@@ -224,6 +268,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.2.3 | Winding is momentary from both the keys and the wheel, and hands the tape back to what it was doing. Clip titles are places, never coordinates. |
 | v1.1.2 | Makeup gain and a limiter on the record path, so recordings are loud. Location actually gets collected — the permission result was being ignored. Pressing the wheel in plays and stops. |
 | v1.0.1 | First release. |
 
