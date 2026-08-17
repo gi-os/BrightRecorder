@@ -1,0 +1,92 @@
+import java.util.Properties
+
+plugins {
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
+}
+
+/**
+ * The key shake-to-report posts issues with. Never in the repository: `local.properties` is
+ * ignored by git, and CI hands it in from a repository secret. An empty string is a working
+ * build — reports queue on the phone and go out from a later one that has the key.
+ */
+val reportToken: String = run {
+    val local = rootProject.file("local.properties")
+    val fromFile = if (local.exists()) {
+        Properties().apply { local.inputStream().use { load(it) } }.getProperty("reportToken")
+    } else {
+        null
+    }
+    fromFile ?: System.getenv("REPORT_TOKEN") ?: ""
+}
+
+android {
+    namespace = "com.gios.brightrecorder"
+    compileSdk = 35
+    buildToolsVersion = "35.0.0"
+
+    defaultConfig {
+        applicationId = "com.gios.brightrecorder"
+        minSdk = 29
+        targetSdk = 35
+        // CI overwrites both from the workflow run number; see .github/workflows/build.yml
+        versionCode = 1
+        versionName = "1.0.0"
+
+        buildConfigField("String", "REPORT_TOKEN", "\"$reportToken\"")
+        buildConfigField("String", "REPORT_REPO", "\"gi-os/light-reports\"")
+
+        // The LPIII is arm64 only; shipping four ABIs tripled the APK for nothing.
+        ndk { abiFilters += "arm64-v8a" }
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("../keystore/brightrecorder.jks")
+            storePassword = "brightrecorder"
+            keyAlias = "brightrecorder"
+            keyPassword = "brightrecorder"
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Same committed key as debug, so either APK upgrades over the other.
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions { jvmTarget = "17" }
+    // buildConfig carries REPORT_TOKEN into the app; see the reportToken block above.
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
+}
+
+dependencies {
+    val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
+    implementation(composeBom)
+    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.activity:activity-compose:1.9.3")
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-graphics")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+
+    // The tape arithmetic — timeline mapping, shuttle rates, clip naming, WAV headers — is
+    // deliberately free of Android imports so it runs on the JVM here rather than only on a
+    // phone. It is the part of this app that is easy to get subtly wrong and impossible to
+    // eyeball: a resampling index that drifts by one sample per block is inaudible for a
+    // minute and a rising whine after ten.
+    testImplementation("junit:junit:4.13.2")
+}

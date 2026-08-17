@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <!--
+      Two reasons this app is online, both of them small. Shake-to-report posts the issue to
+      GitHub, and the reverse geocoder turns the fix into a place name. Neither is on the
+      recording path: with no network a clip is still recorded and still named, just named
+      with its coordinates instead of a neighbourhood.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Coarse is enough. The title says which part of town you were in, not where you stood,
+      and asking for fine location to write "Bastille, Paris" on a file would be asking for
+      more than the feature needs.
+    -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      A recording that stops because the panel went dark is a lost moment, and this app exists
+      to catch moments. The service holds the CPU awake for as long as the reels are turning.
+    -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BrightRecorder">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.BrightRecorder">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          One service for both directions of the tape. Recording and playing are never both
+          happening, and a single service means one notification, one wake lock and one
+          lifecycle to reason about instead of two that have to agree about who owns the
+          audio device.
+        -->
+        <service
+            android:name=".service.TapeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone|mediaPlayback" />
+    </application>
+</manifest>

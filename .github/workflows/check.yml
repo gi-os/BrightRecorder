@@ -1,0 +1,58 @@
+name: Check
+
+# Compiles and tests without publishing anything.
+#
+# The point of this workflow is that a push to main cuts a release, so main is a bad place to find
+# out that something does not compile. Any other branch runs this instead: the same build, minus
+# the signing checks and the release.
+#
+# It is also the only compiler available to a Cowork session — aapt2 ships x86_64-only for Linux,
+# so on an aarch64 sandbox a change cannot be built at all, not even the unit tests, which still
+# need resources processed. Without this the only way to find out was to push to main.
+on:
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Unit test the tape
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      # assembleRelease rather than a bare compile: manifest merge and resource processing are
+      # where a missing class or a permission that does not exist actually surface, and a Kotlin
+      # compile never reaches either.
+      - name: Build APKs
+        run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
+
+      # Cheap here and worth catching before main, where the same check gates the release.
+      - name: Verify launcher icon is present
+        run: |
+          AAPT2=$(find "$ANDROID_HOME/build-tools" -name aapt2 | sort -V | tail -1)
+          "$AAPT2" dump badging app/build/outputs/apk/release/app-release.apk > badging.txt
+          grep -E "^(package:|application:|application-icon-)" badging.txt
+          grep -qE "^application:.*icon='[^']+'" badging.txt \
+            || { echo '::error::package declares no launcher icon'; exit 1; }
+
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: app/build/reports/tests/
+          if-no-files-found: ignore

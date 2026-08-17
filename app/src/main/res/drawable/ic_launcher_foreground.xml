@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Two reels and the tape running under them. Reel-to-reel rather than a cassette shell,
+  because a cassette at launcher size is a rounded rectangle with two dots in it and reads
+  as nothing at all, whereas two rings and a line still read as a tape machine at 24dp.
+
+  An adaptive icon only ever shows its inner 72dp, and a circular mask cuts a 36dp radius
+  from the 108dp centre, so everything here stays inside that: the reels are r=13 with a 4dp
+  ring at x=38 and x=70, which puts their outer edge 31dp out, and the tape stops at x=80.
+  Rings rather than filled discs — a filled disc loses the hub, and the hub is what makes it
+  a reel instead of a button. White only; LightOS is a greyscale panel.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Left reel, r=13 centred (38,50) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:pathData="M25,50 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0" />
+    <!-- Its hub -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M34,50 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- Right reel, r=13 centred (70,50) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:pathData="M57,50 a13,13 0 1,0 26,0 a13,13 0 1,0 -26,0" />
+    <!-- Its hub -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,50 a4,4 0 1,0 8,0 a4,4 0 1,0 -8,0" />
+
+    <!-- The tape, passing across the heads below both reels -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M29.75,69 L78.25,69 A1.75,1.75 0 0 1 78.25,72.5 L29.75,72.5 A1.75,1.75 0 0 1 29.75,69 Z" />
+</vector>
