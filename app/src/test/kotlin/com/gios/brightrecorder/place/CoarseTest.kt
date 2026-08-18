@@ -63,15 +63,48 @@ class CoarseTest {
         assertEquals("Germany", place("UTC", Locale.Builder().setLanguage("en").setRegion("DE").build()).name)
     }
 
-    /** The last resort of the last resort: nothing to go on at all. */
+    /**
+     * The network's country outranks the locale's, because it is where the phone *is* rather than
+     * where it is configured to think it is — which is the whole difference while travelling.
+     */
     @Test
-    fun `no zone and no country is honestly nothing`() {
-        val p = Coarse.place(TimeZone.getTimeZone("UTC"), Locale.ROOT)
-        assertFalse(p.known)
+    fun `the network's country beats the locale's`() {
+        val p = Coarse.place(
+            TimeZone.getTimeZone("UTC"),
+            Locale.US,
+            networkCountry = "fr",
+        )
+        assertEquals("France", p.name)
     }
 
     @Test
-    fun `whatever the phone is actually set to produces something`() {
-        assertTrue(Coarse.place().known)
+    fun `a zone that names a city outranks even the network`() {
+        val p = Coarse.place(TimeZone.getTimeZone("Europe/Berlin"), Locale.US, networkCountry = "fr")
+        assertEquals("Berlin", p.name)
+    }
+
+    @Test
+    fun `an unassigned country code is not a place name`() {
+        val p = Coarse.place(TimeZone.getTimeZone("UTC"), Locale.ROOT, networkCountry = "ZZ")
+        assertFalse(p.known)
+    }
+
+    /**
+     * The one way to get nothing, and the reason it is acceptable: a phone reporting UTC with no
+     * SIM and a locale with no country has said nothing about where it is, and naming a place for
+     * it would be a lie rather than a guess. This is documented rather than papered over — CI runs
+     * in exactly that state, which is how it was found.
+     */
+    @Test
+    fun `UTC with no SIM and no locale country is honestly nothing`() {
+        assertFalse(Coarse.place(TimeZone.getTimeZone("UTC"), Locale.ROOT).known)
+    }
+
+    /** Any one of the three is enough, which is what a real phone always has. */
+    @Test
+    fun `any one of the three sources is enough`() {
+        assertTrue(Coarse.place(TimeZone.getTimeZone("Europe/Paris"), Locale.ROOT).known)
+        assertTrue(Coarse.place(TimeZone.getTimeZone("UTC"), Locale.ROOT, "FR").known)
+        assertTrue(Coarse.place(TimeZone.getTimeZone("UTC"), Locale.FRANCE).known)
     }
 }

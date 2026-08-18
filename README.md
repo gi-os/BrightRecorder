@@ -247,9 +247,11 @@ before the answer arrived, every time. Four things fix that, and it takes all fo
 - **A stale position beats none.** A cached fix from an hour ago is the wrong street and the
   right city, and the city is what goes in the title. Indoors, with nothing else on the phone
   asking for a position, it is the only thing that ever answers.
-- **There is a floor.** The phone's time zone names a city and its locale names a country,
-  neither needing a permission, a network or a position. `Europe/Paris` is a better guess for
-  where you were than nothing is.
+- **There is a floor.** The phone's time zone names a city, the mobile network names a country,
+  and the locale names one behind that — none needing a permission, a network request or a
+  position. `Europe/Paris` is a better guess for where you were than nothing is. The network's
+  country outranks the locale's, because it is where the phone *is* rather than where it is
+  configured to think it is.
 
 A clip filed under one of those guesses **gets its real name later**. The lookup keeps going for
 a minute and a half after you stop, and when it lands the clip is renamed. There is no index to

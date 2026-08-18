@@ -36,24 +36,39 @@ data class Place(val name: String, val fix: Fix) {
  * them — was filed under "Somewhere". "Somewhere" is honest and completely useless: a list of
  * fourteen clips called "Somewhere" is the filing system failing at the one job it has.
  *
- * Neither of these needs a permission, a network, or a fix, so there is always an answer:
+ * None of these needs a permission, a network, or a fix:
  *
  *  - **The time zone**, which on a phone with a SIM tracks the network and names a city.
  *    `Europe/Paris` is a better guess for where you are than nothing is, and while travelling it
  *    is the first thing about the phone to change.
- *  - **The country**, from the locale, when the zone is one of the ones that names no place —
- *    `UTC`, `GMT+02:00`, `Etc/GMT-3`.
+ *  - **The network's country**, when the zone is one of the ones that names no place — `UTC`,
+ *    `GMT+02:00`, `Etc/GMT-3`. This is where the phone is, as opposed to where it is configured
+ *    to think it is, so it comes ahead of the locale.
+ *  - **The locale's country**, last, for a phone with no SIM in it.
  *
- * Both are marked [Fix.Coarse] so a real name replaces them the moment one arrives.
+ * All are marked [Fix.Coarse] so a real name replaces them the moment one arrives.
+ *
+ * There is one way to get nothing out of this, and it is worth being straight about because the
+ * promise elsewhere is that a clip is never called "Somewhere": a phone reporting `UTC` with no
+ * SIM and a locale carrying no country has told us nothing about where it is, and inventing a
+ * place for it would be a lie rather than a guess. Every phone this app runs on reports at least
+ * one of the three.
  */
 object Coarse {
 
+    /**
+     * [networkCountry] is the two-letter code the mobile network reports, or null without a SIM.
+     * Supplied by the caller rather than read here so this stays free of Android; see
+     * [Places.coarse].
+     */
     fun place(
         zone: TimeZone = TimeZone.getDefault(),
         locale: Locale = Locale.getDefault(),
+        networkCountry: String? = null,
     ): Place {
         cityOf(zone.id)?.let { return Place(it, Fix.Coarse) }
-        countryOf(locale)?.let { return Place(it, Fix.Coarse) }
+        networkCountry?.let { code -> nameOfCountry(code, locale)?.let { return Place(it, Fix.Coarse) } }
+        nameOfCountry(locale.country, locale)?.let { return Place(it, Fix.Coarse) }
         return Place("", Fix.None)
     }
 
@@ -73,9 +88,11 @@ object Coarse {
         return city
     }
 
-    private fun countryOf(locale: Locale): String? =
-        locale.country
-            .takeIf { it.length == 2 }
-            ?.let { Locale.Builder().setRegion(it).build().getDisplayCountry(locale) }
+    /** A two-letter country code as a name, in the phone's own language. */
+    private fun nameOfCountry(code: String, locale: Locale): String? =
+        code.takeIf { it.length == 2 && it.all { c -> c.isLetter() } }
+            ?.let { runCatching { Locale.Builder().setRegion(it).build() }.getOrNull() }
+            ?.getDisplayCountry(locale)
+            // An unassigned code displays as the code itself, which is not a place name.
             ?.takeIf { it.isNotBlank() && it.length > 2 }
 }

@@ -65,9 +65,11 @@ single time. Four things fix it, and it takes all four:
 - **A stale position beats none.** A cached fix from an hour ago is the wrong street and the right
   city, and the city is what goes in the title. Indoors, with nothing else on the phone asking for
   a position, it is the only thing that ever answers.
-- **There is a floor.** Failing all of that, the phone's time zone names a city and its locale
-  names a country, neither of which needs a permission, a network or a position. `Europe/Paris` is
-  a better guess for where you were than nothing is.
+- **There is a floor.** Failing all of that, the phone's time zone names a city, the mobile
+  network names a country, and the locale names one behind that — none of which needs a
+  permission, a network request or a position. `Europe/Paris` is a better guess for where you were
+  than nothing is. (A phone reporting UTC with no SIM and no locale country is the one case that
+  still has nothing to say, and it is documented rather than invented around.)
 
 The name chain also carries on further down now — past the street and the neighbourhood to the
 city, the state, and the country — instead of giving up when the geocoder returns an address with

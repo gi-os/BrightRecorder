@@ -8,6 +8,7 @@ import android.location.Geocoder
 import android.location.Location
 import android.location.LocationManager
 import android.os.Build
+import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import com.gios.brightrecorder.tape.Naming
 import kotlinx.coroutines.Dispatchers
@@ -77,9 +78,24 @@ class Places(private val context: Context) {
     val best: Place
         get() {
             if (found.known) return found
-            val coarse = Coarse.place()
+            val coarse = coarse()
             return if (coarse.known) coarse else Place(Naming.NOWHERE, Fix.None)
         }
+
+    /**
+     * [Coarse] with the one thing it cannot read for itself: the country the mobile network says
+     * we are in, which beats the country the phone is *configured* for. No permission needed —
+     * `getNetworkCountryIso` has been free to read since this API existed.
+     */
+    private fun coarse(): Place {
+        val network = runCatching {
+            (context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)
+                ?.networkCountryIso
+                ?.takeIf { it.isNotBlank() }
+                ?.uppercase(Locale.US)
+        }.getOrNull()
+        return Coarse.place(networkCountry = network)
+    }
 
     /** True once something better than a guess has been found. */
     val located: Boolean get() = found.fix == Fix.Named
