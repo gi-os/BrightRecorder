@@ -36,10 +36,40 @@ import com.gios.brightrecorder.ui.theme.RuleGrey
  *
  * [art] is what has been written on the label: a photograph, something drawn on with a finger, or
  * both. When there is any, it replaces the [Pattern] — the pattern exists to tell tapes apart when
- * nothing else does, and a photograph does that job far better. It is drawn *fitted* inside the
- * label rather than cropped to it, so nothing anybody wrote goes off the edge; the letterboxing is
- * invisible on a black panel.
+ * nothing else does, and a photograph does that job far better.
+ *
+ * It fills the label window exactly, because the label is stored in the window's own shape — see
+ * [CassetteShape]. Callers must draw the cassette at [CassetteShape.ASPECT] for that to hold.
  */
+/**
+ * The shape of the thing, and the window on the front of it.
+ *
+ * These are constants rather than numbers in the drawing code because the label editor has to show
+ * *exactly* what the shelf will show. It could not before: the editor drew a 2.5:1 canvas while the
+ * cassette's label was whatever fell out of the width and height it happened to be given, so a
+ * photograph filled the editor and sat letterboxed in the middle of the label. Now the cassette is
+ * drawn at a fixed aspect, the label window's shape follows from [Label.WIDTH] and [Label.HEIGHT],
+ * and the two cannot drift apart.
+ */
+object CassetteShape {
+    /** 100 × 64 mm, which is a Compact Cassette. */
+    const val ASPECT = 1.57f
+
+    const val LABEL_LEFT = 0.08f
+    const val LABEL_RIGHT = 0.92f
+    const val LABEL_TOP = 0.10f
+
+    /**
+     * How tall the label window is, as a fraction of the cassette's height.
+     *
+     * Derived rather than chosen, so that the label's stored shape is the shape it is drawn in. Its
+     * width is a fraction of the cassette's *width*, so converting to a fraction of the height goes
+     * through [ASPECT].
+     */
+    val LABEL_HEIGHT: Float
+        get() = (LABEL_RIGHT - LABEL_LEFT) * ASPECT / (Label.WIDTH.toFloat() / Label.HEIGHT)
+}
+
 @Composable
 fun Cassette(
     pattern: Pattern,
@@ -66,10 +96,10 @@ fun Cassette(
         // The label, inset, holding the pattern. Its top two-thirds, so the windows below it have
         // room — the same proportions a real inlay card has.
         val label = Rect(
-            left = w * 0.08f,
-            top = h * 0.10f,
-            right = w * 0.92f,
-            bottom = h * 0.52f,
+            left = w * CassetteShape.LABEL_LEFT,
+            top = h * CassetteShape.LABEL_TOP,
+            right = w * CassetteShape.LABEL_RIGHT,
+            bottom = h * (CassetteShape.LABEL_TOP + CassetteShape.LABEL_HEIGHT),
         )
         drawRect(
             color = RuleGrey,
@@ -81,16 +111,16 @@ fun Cassette(
             if (art.isEmpty) {
                 paint(pattern, label, if (selected) Color.White else Faint)
             } else {
-                art.photo?.let { fitImage(it, label) }
-                art.drawing?.let { fitImage(it, label) }
-                if (art.title.shown && title.isNotBlank()) {
+                art.photo?.let { fillImage(it, label) }
+                art.drawing?.let { fillImage(it, label) }
+                if (art.spec.titleShown && title.isNotBlank()) {
                     drawIntoCanvas { canvas ->
                         canvas.nativeCanvas.save()
                         canvas.nativeCanvas.translate(label.left, label.top)
                         LabelTitle.draw(
                             canvas.nativeCanvas,
                             title,
-                            art.title.font,
+                            art.spec,
                             label.width.toInt(),
                             label.height.toInt(),
                         )
@@ -263,15 +293,15 @@ private fun DrawScope.paint(pattern: Pattern, area: Rect, ink: Color) {
 }
 
 /**
- * Draw [image] as large as it will go inside [into] without cropping or distorting it.
+ * Draw [image] filling [into], without distorting it.
  *
- * Fitted rather than cropped because the label is small and somebody's handwriting runs to its
- * edges — losing the last word of it to a crop would be worse than a band of black above and below,
- * which on this panel cannot be seen at all.
+ * Fill rather than fit: a label stored in the window's own shape needs neither crop nor letterbox,
+ * and `max` is what makes any rounding error show up as a pixel off the edge instead of a black
+ * hairline down the side. The caller clips.
  */
-private fun DrawScope.fitImage(image: ImageBitmap, into: Rect) {
+private fun DrawScope.fillImage(image: ImageBitmap, into: Rect) {
     if (image.width <= 0 || image.height <= 0) return
-    val scale = minOf(into.width / image.width, into.height / image.height)
+    val scale = maxOf(into.width / image.width, into.height / image.height)
     val w = image.width * scale
     val h = image.height * scale
     drawImage(
