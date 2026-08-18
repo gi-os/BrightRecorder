@@ -1,3 +1,84 @@
+## BrightRecorder v1.6 — Every clip the same loudness
+
+**Recordings were still too quiet, and no two of them were quiet by the same amount. Both are
+fixed, for new recordings and for everything already on the tape.**
+
+### Levelled, not just louder
+
+A tape of moments is recorded in whatever the room was doing at the time: a kitchen at breakfast, a
+street, a train, a room with one person in it. Left alone those come back twenty decibels apart, so
+listening to a tape end to end meant riding the volume — which is the one thing this app exists for
+not having to do. A fixed makeup gain on the record path cannot fix that, because it does not know
+how loud the room is until the recording is over.
+
+So every clip is now **measured** once and played back through a gain that brings it to the same
+place. The measurement is ITU-R BS.1770 integrated loudness — the one streaming services use — not
+a peak and not an RMS, because two recordings with identical peaks can be twenty decibels apart to
+listen to, and plain RMS counts a lorry passing at 40 Hz as loudly as a voice.
+
+Three parts of it earn their keep. **K-weighting** discounts rumble you cannot hear and lifts the
+range the ear is most sensitive to. **Overlapping 400 ms blocks** stop a loud moment straddling a
+window boundary from being averaged away. And **two gates** throw out the silence, and then the
+merely quiet: without them a four-second clip with three seconds of room tone in it reads as almost
+silent and gets turned up until the noise floor is a wall — which is exactly the material this app
+records.
+
+### How loud
+
+The target is **−16 LUFS**, and it is one constant with the reasoning written above it.
+
+Streaming services normalise to −14 LUFS, and that figure is quoted for *stereo* material. A mono
+channel measured on its own reads 3.01 LU lower for the same waveform, so the mono equivalent of
+−14 stereo is about −17. This sits a decibel louder than that on purpose: the ask was for it to be
+a little louder than music rather than exactly level with it, so the phone's own volume never has
+to move.
+
+Two limits stop that becoming silly. A clip is never turned up by more than 20 dB, because a
+recording made in a genuinely silent room would otherwise have the microphone's own noise floor
+lifted to conversational level — a clip that used to be quiet becoming a clip that is loudly
+nothing. And the playback limiter is never asked to pull down more than 12 dB: loudness is an
+average and peaks are not, so a quiet room with one door slam in it can be far below the target on
+average while its loudest sample is already at the ceiling, and a limiter swallowing all of that
+is audible as the whole recording ducking around every transient. Clips with headroom reach the
+target exactly; spiky ones land short of it and stay clean, which is the right way round.
+
+### And retroactively
+
+Everything already recorded is measured too, in the background, the next time you open the app.
+Nothing is rewritten — the samples on disk are untouched — so this cannot damage a recording that
+cannot be made again, and if the target ever changes every clip re-levels with no files rewritten.
+
+The measurement is stored in the clip's own WAV, in a chunk after the samples. That keeps the
+property the whole app rests on: **there is no index anywhere that could disagree with a
+recording.** A clip copied off the phone and back brings its measurement with it, and any other
+program skips the chunk without noticing it.
+
+The pass is deliberately not on the launch path. A tape of a few hundred clips is tens of megabytes
+to read, so it happens a clip at a time with a pause between, the tape plays throughout, and each
+clip starts playing at its proper level as soon as its own measurement lands.
+
+### One bug found on the way
+
+`repair` — the thing that mends a recording the process died in the middle of — inferred the length
+of the audio from the size of the file. That was already wrong for a clip that had been through a
+desktop editor, which comes back with a chunk of software credits in front of its data: the credits
+would have been counted as half a second of noise at the head of the clip. Storing a measurement
+after the samples would have made it wrong for every clip on the tape. It now checks what it is
+looking at before it rewrites anything.
+
+### Under the hood
+
+- `Loudness` — BS.1770 gated loudness, with the K-weighting coefficients recomputed from the
+  analog prototype for 22050 Hz. The tests check that asking it for 48 kHz reproduces the spec's
+  published coefficients exactly, and that a 997 Hz sine at −20 dBFS reads −23 LUFS, which is the
+  spec's own calibration.
+- `Levels` — the target and the two limits, with the reasoning for each.
+- `Wav.readLevel` / `writeLevel` — the measurement in the clip's own file.
+- `Library.measure` — one pass over a clip's samples.
+- 169 tests, up from 125.
+
+---
+
 ## BrightRecorder v1.5 — Hold the wheel to record
 
 **Three things reported against v1.4: the wheel should record when you hold it, rewinding while

@@ -6,6 +6,9 @@ import java.io.RandomAccessFile
 /** Where the samples are in a WAV file, and how many there are. */
 data class WavInfo(val dataOffset: Long, val samples: Long)
 
+/** A clip's measured loudness, as stored in its own file. See [Wav.readLevel]. */
+data class WavLevel(val lufs: Float?, val peak: Float)
+
 /**
  * The WAV container, written by hand.
  *
@@ -27,6 +30,24 @@ object Wav {
 
     /** Canonical PCM header size. Fixed, which is what makes seeking arithmetic. */
     const val HEADER_BYTES = 44L
+
+    /**
+     * Our own chunk, holding what [Loudness] measured.
+     *
+     * Written *after* the data chunk rather than before it, which is not a free choice: the sample
+     * offset has to stay arithmetic (see the class comment), and anything inserted ahead of the
+     * data moves it. A reader that does not know this chunk skips it, which is all of them.
+     *
+     * Twelve bytes: the loudness in hundredths of a LU, the peak in ten-thousandths of full scale,
+     * and a flag saying whether the loudness is a real measurement or the gate found only silence.
+     * Fixed point rather than floats so the bytes are the same on every machine that writes them.
+     */
+    private const val LEVEL_ID = "brlv"
+
+    private const val LEVEL_BYTES = 12L
+
+    /** What a clip whose gating blocks were all silence stores in place of a loudness. */
+    private const val NO_LOUDNESS = Int.MIN_VALUE
 
     /** The header for a file whose data section is [dataBytes] long. */
     fun header(dataBytes: Long): ByteArray {
@@ -112,6 +133,95 @@ object Wav {
         }
     }.getOrNull()
 
+    /**
+     * Read back what was measured, or null if nothing has been.
+     *
+     * Our chunk sits immediately after the samples, and this looks there and nowhere else. That is
+     * deliberate rather than lazy: an unfinished recording declares a data length of zero, so a
+     * walker that carried on past the data chunk would be reading raw audio as chunk headers — and
+     * a walker that did that on the *write* path could find a coincidental "brlv" inside a
+     * recording and truncate the file at it.
+     */
+    fun readLevel(file: File): WavLevel? = runCatching {
+        RandomAccessFile(file, "r").use { raf ->
+            val at = levelOffset(raf) ?: return@use null
+            if (at + 8 + LEVEL_BYTES > raf.length()) return@use null
+            raf.seek(at)
+            val id = ByteArray(4).also { raf.readFully(it) }.let { String(it) }
+            if (id != LEVEL_ID) return@use null
+            val size = readLe32(raf)
+            if (size < LEVEL_BYTES) return@use null
+            val hundredths = readLe32(raf).toInt()
+            val tenThousandths = readLe32(raf)
+            val real = readLe32(raf) != 0L
+            WavLevel(
+                lufs = if (real) hundredths / 100f else null,
+                peak = (tenThousandths / 10_000f).coerceIn(0f, 1f),
+            )
+        }
+    }.getOrNull()
+
+    /**
+     * Store a measurement in the clip's own file, replacing any already there.
+     *
+     * Replacing rather than appending, because the target loudness can change and the clips get
+     * remeasured — a file that accrued one chunk per release would be a file whose readers disagree
+     * about which one is current. Since the chunk is always the last thing in the file, replacing it
+     * is a truncate to the end of the samples and a write.
+     *
+     * Refuses a file whose samples do not run to a plausible end, which is the one case where
+     * truncating would take audio with it.
+     */
+    fun writeLevel(file: File, lufs: Float?, peak: Float): Boolean = runCatching {
+        RandomAccessFile(file, "rw").use { raf ->
+            val at = levelOffset(raf) ?: return@use false
+            // The samples must actually end here, or the only thing past them must be a
+            // measurement of ours that this is about to replace. Without this an *unfinished*
+            // recording — whose data chunk declares a length of zero, so whose "end" is byte 44 —
+            // would be truncated to its header and the whole recording lost.
+            if (at != raf.length() && readLevel(file) == null) return@use false
+            raf.setLength(at)
+            raf.seek(at)
+            raf.write(LEVEL_ID.map { it.code.toByte() }.toByteArray())
+            writeLe32(raf, LEVEL_BYTES)
+            writeLe32(raf, (lufs?.let { (it * 100f).toInt() } ?: 0).toLong() and 0xFFFFFFFFL)
+            writeLe32(raf, (peak.coerceIn(0f, 1f) * 10_000f).toInt().toLong())
+            writeLe32(raf, if (lufs != null) 1L else 0L)
+            // RIFF's own length field covers everything after it, our chunk included, so a reader
+            // walking the file stops in the right place.
+            raf.seek(4)
+            writeLe32(raf, raf.length() - 8)
+            true
+        }
+    }.getOrDefault(false)
+
+    /**
+     * The offset where our chunk lives, or would live: straight after the samples.
+     *
+     * Null unless this is a file this app wrote — a canonical 44-byte header with a data chunk that
+     * declares a length reaching no further than the file does. Anything else came from somewhere
+     * else, and is not ours to append to or truncate.
+     */
+    private fun levelOffset(raf: RandomAccessFile): Long? {
+        if (raf.length() < HEADER_BYTES) return null
+        raf.seek(0)
+        val riff = ByteArray(4).also { raf.readFully(it) }
+        if (String(riff) != "RIFF") return null
+        raf.skipBytes(4)
+        val wave = ByteArray(4).also { raf.readFully(it) }
+        if (String(wave) != "WAVE") return null
+        raf.seek(36)
+        val id = ByteArray(4).also { raf.readFully(it) }.let { String(it) }
+        if (id != "data") return null
+        val declared = readLe32(raf)
+        val end = HEADER_BYTES + declared + (declared and 1L)
+        // A declared length past the end of the file is a recording that was cut short, and one
+        // that stops short of it with no chunk of ours after it is one that was never patched.
+        // Neither has a settled end to write to; [repair] deals with them first.
+        if (end > raf.length()) return null
+        return end
+    }
+
     /** Rewrite both length fields once the final [dataBytes] is known. */
     fun patch(raf: RandomAccessFile, dataBytes: Long) {
         raf.seek(4)
@@ -131,14 +241,25 @@ object Wav {
     fun repair(file: File): Boolean = runCatching {
         val length = file.length()
         if (length <= HEADER_BYTES) return false
-        val declared = RandomAccessFile(file, "r").use { raf ->
-            raf.seek(40)
-            readLe32(raf)
+        RandomAccessFile(file, "rw").use { raf ->
+            raf.seek(36)
+            val id = ByteArray(4).also { raf.readFully(it) }.let { String(it) }
+            // Only the shape this app writes, with the samples straight after a canonical header.
+            // A clip that came back from a desktop editor has a `LIST` chunk of credits in front of
+            // its data, and inferring its length from its file size would count that metadata as
+            // audio — which the old version of this did.
+            if (id != "data") return false
+            val declared = readLe32(raf)
+            // Anything already sitting after the samples means the file was patched when it was
+            // written and there is nothing here to mend. Our own measurement chunk is the case:
+            // without this check every measured clip looked twelve bytes short and got "repaired"
+            // into playing its own metadata as a click at the end.
+            if (readLevel(file) != null) return false
+            val actual = length - HEADER_BYTES
+            if (declared == actual) return false
+            patch(raf, actual)
+            true
         }
-        val actual = length - HEADER_BYTES
-        if (declared == actual) return false
-        RandomAccessFile(file, "rw").use { raf -> patch(raf, actual) }
-        true
     }.getOrDefault(false)
 
     private fun readLe16(raf: RandomAccessFile): Int {
