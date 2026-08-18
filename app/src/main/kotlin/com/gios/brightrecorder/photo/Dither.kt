@@ -81,6 +81,38 @@ object Dither {
         return halftone(cropped, filter = spec.filter)
     }
 
+    /**
+     * A tile of the halftone at exactly half grey, for filling with.
+     *
+     * There is no grey on this panel, so a grey line has to be a pattern of black and white — and it
+     * has to be *the same* pattern the photographs use, or a grey stroke over a halftoned picture
+     * reads as two different materials rather than as ink on a photograph. So this is the Bayer
+     * matrix at the one threshold a mid-grey pixel would take, blown up by [cell] with no filtering,
+     * which is the same treatment [halftone] gives a picture.
+     *
+     * Cached: a stroke asks for this on every frame it is drawn, and it is the same eight-by-eight
+     * decision every time.
+     */
+    fun greyTile(cell: Int = CELL): Bitmap {
+        val c = cell.coerceIn(1, 16)
+        tiles[c]?.let { return it }
+        val small = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(64)
+        for (y in 0 until 8) {
+            for (x in 0 until 8) {
+                val threshold = (BAYER_8[y][x] * 255 + 32) / 64
+                // Mid grey against this cell's threshold, which is what makes the texture match.
+                pixels[y * 8 + x] = if (128 > threshold) WHITE else BLACK
+            }
+        }
+        small.setPixels(pixels, 0, 8, 0, 0, 8, 8)
+        val tile = if (c == 1) small else Bitmap.createScaledBitmap(small, 8 * c, 8 * c, false)
+        tiles[c] = tile
+        return tile
+    }
+
+    private val tiles = HashMap<Int, Bitmap>()
+
     /** Luminance, at the weights the eye actually uses. */
     private fun gray(pixel: Int): Int =
         ((pixel shr 16 and 0xFF) * 299 + (pixel shr 8 and 0xFF) * 587 + (pixel and 0xFF) * 114) / 1000

@@ -2,7 +2,6 @@ package com.gios.brightrecorder.ui
 
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
-import android.graphics.Paint as AndroidPaint
 import android.graphics.Path as AndroidPath
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -40,11 +39,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
@@ -54,9 +50,11 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.gios.brightrecorder.label.Ink
 import com.gios.brightrecorder.label.Label
 import com.gios.brightrecorder.label.LabelSpec
 import com.gios.brightrecorder.label.LabelTitle
+import com.gios.brightrecorder.label.Strokes
 import com.gios.brightrecorder.photo.Gallery
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.tape.Tape
@@ -109,7 +107,7 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
     var tool by remember { mutableStateOf(Tool.Draw) }
     var picking by remember { mutableStateOf(false) }
     var erasing by remember { mutableStateOf(false) }
-    var blackInk by remember { mutableStateOf(false) }
+    var ink by remember { mutableStateOf(Ink.White) }
     var saving by remember { mutableStateOf(false) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
@@ -164,13 +162,13 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
                     strokes = strokes,
                     tool = tool,
                     erasing = erasing,
-                    blackInk = blackInk,
+                    ink = ink,
                     onSpec = { spec = it },
                     onSize = { canvasSize = it },
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    hint(tool, erasing, blackInk, spec, hasSource),
+                    hint(tool, erasing, ink, spec, hasSource),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Dim,
                     maxLines = 2,
@@ -200,11 +198,11 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
             when (tool) {
                 Tool.Draw -> {
                     TransportKey(
-                        glyph = if (blackInk) "BLACK" else "WHITE",
-                        held = blackInk,
+                        glyph = ink.label,
+                        held = ink != Ink.White,
                         enabled = !erasing,
                         modifier = Modifier.weight(1f),
-                    ) { blackInk = !blackInk }
+                    ) { ink = ink.next() }
                     TransportKey(
                         glyph = "RUB",
                         held = erasing,
@@ -293,12 +291,12 @@ private enum class Tool(val label: String) {
 private fun hint(
     tool: Tool,
     erasing: Boolean,
-    blackInk: Boolean,
+    ink: Ink,
     spec: LabelSpec,
     hasSource: Boolean,
 ): String = when {
     tool == Tool.Draw && erasing -> "Rub out what you drew."
-    tool == Tool.Draw -> "Draw with a finger, in ${if (blackInk) "black" else "white"}."
+    tool == Tool.Draw -> "Draw with a finger, in ${ink.label.lowercase()}."
     tool == Tool.Photo && !hasSource -> "PICK a photograph to put behind the label."
     tool == Tool.Photo -> "Drag to move it, pinch to zoom. Graded ${spec.filter.label.lowercase()}."
     spec.titleShown -> "Drag to move the title, pinch to size and turn it. ${spec.font.label}."
@@ -322,7 +320,7 @@ private fun LabelCanvas(
     strokes: MutableList<Stroke2D>,
     tool: Tool,
     erasing: Boolean,
-    blackInk: Boolean,
+    ink: Ink,
     onSpec: (LabelSpec) -> Unit,
     onSize: (IntSize) -> Unit,
 ) {
@@ -343,12 +341,12 @@ private fun LabelCanvas(
             }
             // Keyed on the tool so that switching tools rebuilds the gesture with the right
             // meaning — a drag is a stroke, a pan, or moving the title, and never two of those.
-            .pointerInput(tool, erasing, blackInk) {
+            .pointerInput(tool, erasing, ink) {
                 when (tool) {
                     Tool.Draw -> awaitEachGesture {
                         val down = awaitFirstDown()
                         down.consume()
-                        val stroke = Stroke2D(erasing, blackInk, mutableStateListOf(down.position))
+                        val stroke = Stroke2D(erasing, ink, mutableStateListOf(down.position))
                         strokes.add(stroke)
                         var stillDown = true
                         while (stillDown) {
@@ -409,7 +407,7 @@ private fun LabelCanvas(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        StrokeLayer(strokes)
+        StrokeLayer(strokes, size)
         if (spec.titleShown && tape.name.isNotBlank()) {
             Canvas(Modifier.fillMaxSize()) {
                 drawIntoCanvas { canvas ->
@@ -457,36 +455,57 @@ private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.transfor
 /** One continuous mark. */
 private class Stroke2D(
     val erase: Boolean,
-    val black: Boolean,
+    val ink: Ink,
     val points: MutableList<Offset>,
 )
 
 /**
  * The strokes drawn live, in screen coordinates.
  *
- * A rub-out is drawn in black here and *removes* pixels when it is flattened. On screen that is the
- * same thing, because what is under it in the preview is the label's own black.
+ * Drawn through `android.graphics` rather than Compose, using the very same paint the save uses.
+ * That is not tidiness: grey ink is a *pattern*, and two drawing paths that agree about a colour by
+ * luck have no reason at all to agree about a pattern. Routing both through [Strokes.paint] is what
+ * makes the preview a preview.
  */
 @Composable
-private fun StrokeLayer(strokes: List<Stroke2D>) {
+private fun StrokeLayer(strokes: List<Stroke2D>, canvas: IntSize) {
     Canvas(Modifier.fillMaxSize()) {
-        strokes.forEach { stroke ->
-            val path = androidx.compose.ui.graphics.Path().apply {
-                stroke.points.firstOrNull()?.let { moveTo(it.x, it.y) }
-                stroke.points.drop(1).forEach { lineTo(it.x, it.y) }
+        drawIntoCanvas { target ->
+            strokes.forEach { stroke ->
+                if (stroke.points.isEmpty()) return@forEach
+                val path = AndroidPath().apply {
+                    val first = stroke.points.first()
+                    moveTo(first.x, first.y)
+                    stroke.points.drop(1).forEach { lineTo(it.x, it.y) }
+                }
+                target.nativeCanvas.drawPath(
+                    path,
+                    Strokes.paint(
+                        ink = stroke.ink,
+                        // On screen a rub-out has nothing under it but the label's own black, so it
+                        // is drawn as black rather than as a hole — a CLEAR stroke into the window
+                        // Compose is composing would punch through the app behind it.
+                        erase = false,
+                        widthPx = if (stroke.erase) ERASER_PX else PEN_PX,
+                        tilePx = tileFor(canvas.width),
+                    ).also { if (stroke.erase) it.color = android.graphics.Color.BLACK },
+                )
             }
-            drawPath(
-                path = path,
-                color = if (stroke.erase || stroke.black) Color.Black else Color.White,
-                style = Stroke(
-                    width = if (stroke.erase) ERASER_PX else PEN_PX,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                ),
-            )
         }
     }
 }
+
+/**
+ * How big a halftone cell is in a canvas [width] pixels across.
+ *
+ * The editor draws the label smaller than it is stored, so using the label's own cell size would
+ * make grey come out coarser in the preview than it does on the tape.
+ */
+private fun tileFor(width: Int): Int =
+    if (width <= 0) HALFTONE_CELL else (HALFTONE_CELL * width / Label.WIDTH).coerceAtLeast(1)
+
+/** The cell everything on a label is halftoned at. Matches [com.gios.brightrecorder.photo.Dither]. */
+private const val HALFTONE_CELL = 3
 
 private const val PEN_PX = 6f
 private const val ERASER_PX = 28f
@@ -517,28 +536,17 @@ private suspend fun flatten(
     }
     val scaleX = Label.WIDTH.toFloat() / canvas.width
     val scaleY = Label.HEIGHT.toFloat() / canvas.height
-    val paint = AndroidPaint().apply {
-        isAntiAlias = true
-        style = AndroidPaint.Style.STROKE
-        strokeCap = AndroidPaint.Cap.ROUND
-        strokeJoin = AndroidPaint.Join.ROUND
-    }
     strokes.forEach { stroke ->
         if (stroke.points.isEmpty()) return@forEach
-        // A rub-out has to actually remove pixels rather than paint black ones: the drawing sits
-        // over the photograph, so black ink would blot the photograph out instead of revealing it.
-        // Black *ink*, on the other hand, really is black, and is how you draw on a light picture.
-        paint.xfermode = if (stroke.erase) {
-            android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
-        } else {
-            null
-        }
-        paint.color = when {
-            stroke.erase -> android.graphics.Color.TRANSPARENT
-            stroke.black -> android.graphics.Color.BLACK
-            else -> android.graphics.Color.WHITE
-        }
-        paint.strokeWidth = (if (stroke.erase) ERASER_PX else PEN_PX) * scaleX
+        // Here a rub-out really does remove pixels, which is the difference from the preview: the
+        // drawing sits over the photograph, so an erased stroke has to leave a hole for the
+        // photograph to show through rather than a black mark on top of it.
+        val paint = Strokes.paint(
+            ink = stroke.ink,
+            erase = stroke.erase,
+            widthPx = (if (stroke.erase) ERASER_PX else PEN_PX) * scaleX,
+            tilePx = HALFTONE_CELL,
+        )
         val path = AndroidPath().apply {
             val first = stroke.points.first()
             moveTo(first.x * scaleX, first.y * scaleY)

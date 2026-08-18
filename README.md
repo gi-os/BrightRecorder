@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.9.11** (tag `v1.9.11`).
+**Current release: v1.10.12** (tag `v1.10.12`).
 
 ## Install by hand
 
@@ -342,7 +342,17 @@ something that looks printed.
 
 **The title goes on top**, dragged anywhere, pinched to size and turn, in one of nine faces — plain, serif, typed, spaced, heavy, cursive, comic, hand and pixel. Comic Sans is not on Android; `casual` is Coming Soon, the same idea done better. Pixel has no typeface at all, because Android ships no bitmap font: it is set small and blown back up unfiltered, so every glyph becomes blocks. It is stored as a choice rather than burned in, so renaming the tape moves the label with it and changing the face rubs nothing out.
 
-The pen draws in black as well as white — black over the light half of a halftone, white over the dark half — and the eraser is a third thing again, removing what it passes over rather than painting black, because the drawing sits above the photograph.
+The pen draws in **white, grey or black**. A halftone has as much white in it as black, so a white
+line vanishes into its light half and a black one into its dark half — grey reads on both, which is
+why it is the useful ink over a photograph rather than a third colour for its own sake. There being
+no grey on this panel, a grey line is the halftone at half, in the same Bayer matrix and cell size
+the photographs use, so it reads as ink on a photograph rather than as a different material laid
+over one.
+
+Rubbing out stays a mode rather than a fourth colour, because it differs in kind: it removes what it
+passes over so the photograph shows through, where black ink would blot the photograph out. The
+preview and the saved label go through one paint — they used to be Compose and `android.graphics`
+respectively, which agreed about solid colours by luck and would not have agreed about a pattern.
 
 It all lives in the tape's own folder: `label-source.jpg`, `label-photo.png`, `label-drawing.png`, `label.txt`.
 Same rule as the recordings — a tape is a directory and there is no index to disagree with it. Each
@@ -429,6 +439,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.10.12 | The pen draws in grey — the halftone at half, in the same pattern the photographs use — and the preview and the saved label now go through one paint, so a pattern looks the same in both. |
 | v1.9.11 | The label in the editor is the label on the tape — one shape, derived in one place. Photographs move, zoom and grade; titles move, turn and size, in nine faces including cursive, comic and pixel; the pen draws in black as well as white. |
 | v1.8.10 | Labels: draw on one with a finger, put a photograph on it from the phone's roll (starred-only via Roll), and set the tape's title on it in one of five faces. The shelf draws every cassette with its own label, so you pick a tape by recognising it. |
 | v1.7.9 | Letting go of rewind or fast-forward carries on playing. The engine reads the transport from the deck instead of keeping a copy the audio thread could clobber, and the wind keys issue their release from a `finally` so it cannot be lost. |
