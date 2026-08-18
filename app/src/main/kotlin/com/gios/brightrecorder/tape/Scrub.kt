@@ -85,12 +85,26 @@ class Scrub {
                 if (current == 0f) direction = 0
                 0f
             }
-            else -> (direction * TAPE_PER_NOTCH * 1000f / gapMs).coerceIn(-MAX_RATE, MAX_RATE)
+            else -> {
+                val wanted = direction * TAPE_PER_NOTCH * 1000f / gapMs
+                // Pinned at the ceiling rather than smoothed towards it. Spun hard, the measured
+                // gap jitters around the sensor's floor, so the raw figure hunts a few tenths below
+                // 8x and the readout never settles — which reads as the wheel not holding its top
+                // speed. Anything asking for the ceiling or beyond gets exactly the ceiling.
+                if (wanted >= MAX_RATE) MAX_RATE
+                else if (wanted <= -MAX_RATE) -MAX_RATE
+                else wanted
+            }
         }
 
         val step = if (abs(target) < abs(current)) FALL else RISE
         current += (target - current) * step
         if (abs(current) < DEAD) current = 0f
+        // And once the ramp is within a whisker of the ceiling, sit on it. Without this the rate
+        // approaches 8x asymptotically and the readout shows 7.9x for ever while the wheel is
+        // being spun as fast as it can go.
+        if (current >= MAX_RATE - PIN) current = MAX_RATE
+        if (current <= -MAX_RATE + PIN) current = -MAX_RATE
         return current
     }
 
@@ -142,5 +156,8 @@ class Scrub {
 
         /** Below this the wheel is contributing nothing. */
         const val DEAD = 0.02f
+
+        /** How close to [MAX_RATE] counts as being at it. See [rate]. */
+        const val PIN = 0.15f
     }
 }

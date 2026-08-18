@@ -1,3 +1,58 @@
+## BrightRecorder v1.11 — Letting go, with no exceptions
+
+**The rule is: the tape goes back to whatever it was doing before you pressed the key. It took four
+releases to get right, and the reason is that every attempt kept an exception to it.**
+
+Each exception looked reasonable on its own, and each one fired far more often than the rule did:
+
+- Reaching the **front** of the tape cancelled the wind *and its resume together*, so letting go left
+  the tape stopped at zero. Fixed in v1.5.
+- Reaching the **back** still cancelled it, on the reasoning that there is nothing left to play.
+- And letting go **at the very end** refused to resume into play at all, to avoid a start that
+  instantly stopped again.
+
+Those last two are gone now. There is nothing left to play at the end of a tape, and the tape stops
+on its own a moment later when it gets there — that did not need pre-empting, and pre-empting it is
+what threw the resume away. A start that instantly stops again is the correct thing for a tape that
+has run out.
+
+Why this mattered so much in practice: a wind runs at 8x and a moment is a few seconds long, so a
+wind reaches an end of the tape *almost every time you use it*. The exceptions were the normal case
+and the rule was the rare one.
+
+So both ends now do the same thing — park the reels and touch nothing else. The key may still be
+down, and letting go is the only thing allowed to decide where the tape goes.
+
+### The machine says what letting go will do
+
+While a wind key is held, the readout shows where it is going: `<< 8.0x → PLAY`. Four releases of
+this not working were four releases of guessing, and the machine already knows the answer.
+
+It is also the one thing that tells the two possible faults apart. If it says **→ PLAY** and the
+tape then does not play, the fault is downstream of every rule in the transport — and that is worth
+one word from you rather than another round of me guessing.
+
+### Winding gears: 8x, and 16x and 32x on a second tap
+
+Winding now runs at **8x** rather than 4x. 4x is slower than you want for finding a moment three
+clips back.
+
+**Tap the same key again and it steps up** — 8, then 16, then 32. Past roughly 8x speech stops being
+something you can navigate by, so the higher gears are a deliberate second and third press rather
+than where the key starts. A press that is not a second tap starts again at 8x, and the gear is per
+key, so tapping rewind does not inherit fast-forward's.
+
+### The wheel holds its top speed
+
+Spun hard, the wheel's measured notch interval jitters around the sensor's floor, so the rate hunted
+a few tenths below 8x and the readout never settled on it — which reads as the wheel not holding its
+top speed. Anything asking for the ceiling or beyond now gets exactly the ceiling, and the ramp sits
+on 8.0x instead of approaching it for ever.
+
+- 208 tests, up from 198.
+
+---
+
 ## BrightRecorder v1.10 — Grey ink
 
 **The pen now draws in grey as well as black and white.**

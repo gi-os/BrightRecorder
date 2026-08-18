@@ -22,23 +22,42 @@ package com.gios.brightrecorder.tape
  * The alternative is what was here before: four threads writing a transport and a latch with no
  * agreement between them, which is the state this class exists to end.
  *
- * ### The end of the tape is two different rules
+ * ### Letting go has exactly one rule, and it has no exceptions
  *
- * The back of the tape is a stop: playing to the end means the tape has finished, and there is
- * nothing left to resume into.
+ * **The tape goes back to whatever it was doing before you pressed the key.** Playing if it was
+ * playing, stopped if it was stopped. That is the whole of it, and it took four releases to get
+ * right because each attempt kept an exception to it that looked reasonable on its own:
  *
- * The front is not. It is a wall the head rests against: the reels stop, because there is no more
- * tape to wind, and that is *all* that happens. The key is still down and what it interrupted is
- * still waiting behind it, so letting go plays on from the beginning.
+ *  - Reaching the front of the tape used to cancel the wind *and its resume together*, so letting
+ *    go left the tape stopped at zero. On clips a few seconds long — which is what this app
+ *    records — a wind reaches an end almost every time you use it, so the exception fired more
+ *    often than the rule did.
+ *  - Then reaching the *back* still cancelled it, on the reasoning that there is nothing left to
+ *    play. There is nothing left to play, and the tape stops on its own when it gets there — which
+ *    it does through [ranOff] a moment later, without this having to pre-empt it.
+ *  - And letting go at the very end refused to resume into play at all, to avoid a start that
+ *    instantly stopped again. A start that instantly stops again is the right thing for a tape that
+ *    has run out, and it is one fewer line to be wrong about.
  *
- * This is the bug that kept coming back. Reaching zero used to cancel the wind and its resume
- * together, so letting go left the tape stopped at the start. On clips a few seconds long — which
- * is what this app records — a 4x rewind reaches zero almost every time you use it, so "rewind
- * while playing, then let go" ended in silence very nearly always.
+ * So an end of the tape parks the reels and touches nothing else. The key may still be down;
+ * letting go is the only thing allowed to decide where the tape goes, and it decides it the same
+ * way everywhere.
  */
 class Deck {
 
     private val lock = Any()
+
+    private companion object {
+        /**
+         * The speeds a wind runs at, in order. Tap the key again to step up.
+         *
+         * 8x is where it starts rather than the 4x it was, because 4x is slower than you want for
+         * finding a moment three clips back. Past roughly 8x speech stops being something you can
+         * navigate by at all, which is why 16 and 32 are a deliberate second and third tap rather
+         * than where the key begins.
+         */
+        val WIND_SPEEDS = listOf(8f, 16f, 32f)
+    }
 
     /**
      * The transport the engine should be running.
@@ -82,23 +101,57 @@ class Deck {
         transport = Transport.Stopped
     }
 
-    /** Press and hold a wind key. */
-    fun beginWind(back: Boolean) = synchronized(lock) {
+    /**
+     * How fast a wind runs, as a multiple of playing speed. See [beginWind].
+     *
+     * Volatile for the same reason [transport] is: the audio thread multiplies by it every block.
+     */
+    @Volatile
+    var windSpeed: Float = WIND_SPEEDS.first()
+        private set
+
+    /**
+     * Press and hold a wind key.
+     *
+     * [step] steps the speed up instead of starting again at the bottom, which is what a second tap
+     * of the same key means. Handed in rather than timed here, so the timing lives with the key that
+     * was tapped and this class stays free of a clock.
+     */
+    fun beginWind(back: Boolean, step: Boolean = false) = synchronized(lock) {
+        windSpeed = if (step) nextSpeed(windSpeed) else WIND_SPEEDS.first()
         val to = if (back) Transport.Rewinding else Transport.FastForwarding
         transport = wind.begin(from = transport, wind = to)
     }
 
-    /**
-     * Let go of a wind key: back to whatever it interrupted.
-     *
-     * [atEnd] because resuming into play at the very end of the tape would start and immediately
-     * stop again, which reads as a dead key. That is the one place a resume is dropped.
-     */
-    fun endWind(atEnd: Boolean) = synchronized(lock) {
-        if (!wind.isWinding) return@synchronized
-        val resume = wind.end()
-        transport = if (resume == Transport.Playing && atEnd) Transport.Stopped else resume
+    private fun nextSpeed(from: Float): Float {
+        val at = WIND_SPEEDS.indexOfFirst { it >= from - 0.01f }
+        return WIND_SPEEDS[(at + 1).coerceAtMost(WIND_SPEEDS.lastIndex)]
     }
+
+    /**
+     * Let go of a wind key: back to whatever it interrupted, with no exceptions. See the class
+     * comment for the three that used to live here and what each of them cost.
+     */
+    fun endWind() = synchronized(lock) {
+        if (!wind.isWinding) return@synchronized
+        transport = wind.end()
+        // The gear is deliberately *not* put back here. Stepping up is tap, tap, tap — so the gear
+        // has to survive the gap between two taps, and letting go is that gap. A press that is not
+        // a second tap resets it; see [beginWind].
+    }
+
+    /**
+     * What letting go would do right now: "PLAY", "STOP", or nothing when no key is held.
+     *
+     * Shown on screen while winding, because after four releases of this not working the machine
+     * should say what it is about to do rather than leaving it to be found out. It is also the one
+     * thing that tells the two possible faults apart: if it says PLAY and the tape then does not
+     * play, the fault is downstream of every rule in this class.
+     */
+    val resumeLabel: String
+        get() = synchronized(lock) {
+            if (!wind.isWinding) "" else if (wind.resumeTo == Transport.Playing) "PLAY" else "STOP"
+        }
 
     /**
      * The head reached an end of the tape. See the class comment for why the two ends differ.
@@ -107,18 +160,17 @@ class Deck {
      * the same answer, because the audio thread has no way of knowing it has already reported it.
      */
     fun ranOff(atStart: Boolean) = synchronized(lock) {
-        if (atStart) {
-            // The reels stop against the wall. The latch is deliberately left alone: the key is
-            // still down, and letting go is what decides where the tape goes next.
-            if (wind.isWinding) transport = Transport.Stopped
-            // Not winding means the wheel scrubbed back into the wall, and the wheel never touched
-            // the transport in the first place. Nothing to do: playing keeps playing from zero.
-        } else {
-            // The other end really is the end. Nothing is left to play, so there is nothing to
-            // resume into either, and an armed resume would start the tape from an end it has
-            // already reached.
-            wind.cancel()
+        // A wind that runs out of tape parks the reels and touches nothing else — either end, the
+        // same answer. The latch is deliberately untouched: the key may still be down, and letting
+        // go is the only thing allowed to decide where the tape goes next.
+        if (wind.isWinding) {
             transport = Transport.Stopped
+            return@synchronized
         }
+        // Not winding, so this is the tape itself arriving at an end: playing to the finish, or the
+        // wheel scrubbed into the wall. Playing to the finish stops, because it is finished. The
+        // front is not an ending — the wheel never touched the transport, so playing carries on
+        // from zero and a stopped tape stays stopped.
+        if (!atStart) transport = Transport.Stopped
     }
 }

@@ -49,6 +49,12 @@ data class TapeState(
     /** Where the current recording will be filed, as far as the fix has got. */
     val place: String = Naming.NOWHERE,
     /**
+     * What letting go of the wind key would do — "PLAY", "STOP", or empty when none is held.
+     *
+     * On screen while winding. See [com.gios.brightrecorder.tape.Deck.resumeLabel].
+     */
+    val resumeTo: String = "",
+    /**
      * Bumped whenever a label is written on.
      *
      * A label is a pair of files, not a field, so nothing about [tapes] changes when one is edited
@@ -319,16 +325,27 @@ object TapeController {
     fun beginWind(back: Boolean) {
         val e = engine ?: return
         if (_state.value.isRecording || e.tape.isEmpty) return
-        deck.beginWind(back)
+        // A press that lands soon after the last release of the *same* key is a second tap, and a
+        // second tap steps the wind up a gear. Timed here rather than in [Deck] so the deck stays
+        // free of a clock, and per key so tapping rewind does not inherit fast-forward's gear.
+        val now = System.nanoTime() / 1_000_000L
+        val step = back == lastWindBack && now - lastWindReleasedAt < DOUBLE_TAP_MS
+        lastWindBack = back
+        deck.beginWind(back, step)
         follow()
     }
 
-    /** Let go of a wind key: back to whatever it interrupted. */
+    /** Let go of a wind key: back to whatever it interrupted. No exceptions; see [Deck]. */
     fun endWind() {
-        val e = engine
-        deck.endWind(atEnd = e != null && e.position >= e.tape.samples.toDouble())
+        if (!deck.isWinding) return
+        lastWindReleasedAt = System.nanoTime() / 1_000_000L
+        deck.endWind()
         follow()
     }
+
+    /** When a wind key was last let go, and which one, for spotting a double tap. */
+    private var lastWindReleasedAt = 0L
+    private var lastWindBack = false
 
     /**
      * One notch of the wheel.
@@ -663,6 +680,7 @@ object TapeController {
             recorded = r?.samples ?: 0L,
             level = r?.level ?: 0f,
             place = places?.best?.name ?: Naming.NOWHERE,
+            resumeTo = deck.resumeLabel,
             labelRevision = labelRevision,
         )
     }
@@ -708,6 +726,15 @@ object TapeController {
 
     /** How often the wait above looks. Cheap: it reads one volatile field. */
     private const val NAMING_POLL_MS = 500L
+
+    /**
+     * How soon after letting go a second tap still counts as a double tap.
+     *
+     * Longer than Android's own 300 ms, because these are big keys pressed without looking and the
+     * gesture here is tap-and-hold rather than tap-tap — the second press is the start of a wind you
+     * mean to keep holding, so being generous costs nothing.
+     */
+    private const val DOUBLE_TAP_MS = 450L
 
     /** Clips measured between one republish of the tape and the next. See [measureUnmeasured]. */
     private const val RELOAD_EVERY = 8
