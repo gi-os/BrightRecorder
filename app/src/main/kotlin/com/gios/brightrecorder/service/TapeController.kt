@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.gios.brightrecorder.Prefs
+import com.gios.brightrecorder.place.Fix
 import com.gios.brightrecorder.place.Places
 import com.gios.brightrecorder.report.Trouble
 import com.gios.brightrecorder.tape.Clip
+import com.gios.brightrecorder.tape.Deck
 import com.gios.brightrecorder.tape.Library
 import com.gios.brightrecorder.tape.Naming
 import com.gios.brightrecorder.tape.Recorder
@@ -15,7 +17,6 @@ import com.gios.brightrecorder.tape.Tapes
 import com.gios.brightrecorder.tape.SAMPLES_PER_SECOND
 import com.gios.brightrecorder.tape.TapeEngine
 import com.gios.brightrecorder.tape.Transport
-import com.gios.brightrecorder.tape.WindLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -226,6 +227,14 @@ object TapeController {
 
     // ------------------------------------------------------------------ transport
 
+    /**
+     * Every rule about what the transport does next. See [Deck].
+     *
+     * Nothing here decides; it only carries out. That separation is the point: the rules are the
+     * part that kept being wrong, and away from Android they have a test each.
+     */
+    private val deck = Deck()
+
     fun play() {
         if (_state.value.isRecording) return
         val e = engine ?: return
@@ -233,21 +242,29 @@ object TapeController {
         // Playing from the very end is the one case where play has to move the head: otherwise
         // it starts, instantly runs off the end, and stops again, which reads as a dead button.
         if (e.position >= e.tape.samples.toDouble()) e.seek(0)
-        set(Transport.Playing)
+        deck.play()
+        follow()
     }
 
     fun stop() {
-        wind.cancel()
-        set(Transport.Stopped)
+        deck.stop()
+        follow()
     }
 
     fun toggle() = if (_state.value.transport == Transport.Playing) stop() else play()
 
-    private fun set(transport: Transport) {
+    /**
+     * Make the machine do whatever [deck] now says, and publish it.
+     *
+     * The only place the engine, the service and the ticker are started, so there is one answer to
+     * "what has to be running for this transport" rather than one per caller.
+     */
+    private fun follow() {
         val e = engine ?: return
+        val transport = deck.transport
         if (transport != Transport.Stopped && e.tape.isEmpty) return
         e.setTransport(transport)
-        if (transport != Transport.Stopped) {
+        if (transport != Transport.Stopped && transport != Transport.Recording) {
             e.start()
             startService()
         }
@@ -256,17 +273,6 @@ object TapeController {
     }
 
     // --------------------------------------------------------------------- winding
-
-    /**
-     * Winding, from the wind keys and from nothing else.
-     *
-     * The wheel used to share this latch, and that was the bug behind "rewinding while playing
-     * stops playing when you let go": the wheel armed the latch on a notch and its idle timer
-     * disarmed it a third of a second later, which could happen while a finger was still holding
-     * the rewind key. The wind ended early under the finger, and the release then found the latch
-     * already spent and did nothing. The wheel is out of it now — see [scrubFromWheel].
-     */
-    private val wind = WindLatch()
 
     /**
      * Press and hold a wind key. Release with [endWind].
@@ -278,22 +284,15 @@ object TapeController {
     fun beginWind(back: Boolean) {
         val e = engine ?: return
         if (_state.value.isRecording || e.tape.isEmpty) return
-        val to = if (back) Transport.Rewinding else Transport.FastForwarding
-        set(wind.begin(from = e.transport, wind = to))
+        deck.beginWind(back)
+        follow()
     }
 
     /** Let go of a wind key: back to whatever it interrupted. */
     fun endWind() {
-        if (!wind.isWinding) return
-        val resume = wind.end()
-        // Resuming into play at the very end of the tape would start and immediately stop, so
-        // treat that as having played to the end — which is what it is.
         val e = engine
-        if (resume == Transport.Playing && e != null && e.position >= e.tape.samples.toDouble()) {
-            set(Transport.Stopped)
-        } else {
-            set(resume)
-        }
+        deck.endWind(atEnd = e != null && e.position >= e.tape.samples.toDouble())
+        follow()
     }
 
     /**
@@ -357,16 +356,19 @@ object TapeController {
         // record button for as long as a block takes to drain.
         // Whatever the wind was going to resume into is meaningless now: this recording will be
         // filed when it stops, and an armed resume would start the tape playing on top of it.
-        wind.cancel()
+        deck.record()
         e.scrub.still()
-        e.setTransport(Transport.Recording)
+        e.setTransport(deck.transport)
         scope.launch { e.stop() }
 
-        places?.forget()
+        // Not `forget()` any more: the phone has not moved since the last recording, and the place
+        // already found is the one answer certain to be ready in time. Looking again is what keeps
+        // it honest.
         startLocating()
 
         if (!r.start(System.currentTimeMillis())) {
-            e.setTransport(Transport.Stopped)
+            deck.finishedRecording()
+            e.setTransport(deck.transport)
             locating?.cancel()
             Trouble.record("start recording", r.failure)
             publish()
@@ -399,25 +401,48 @@ object TapeController {
     }
 
     /**
+     * Find out where we are before anything asks, whenever the app comes to the front.
+     *
+     * This is the single biggest reason clips used to be called "Somewhere". The lookup only ran
+     * when you pressed record, and a moment is four seconds long — so the clip was filed long
+     * before the first fix arrived, every time. Started here it has the whole time you spend
+     * looking at the screen before you press anything, which is usually enough.
+     *
+     * Cheap to call repeatedly: [Places.locate] returns immediately while its answer is fresh, so
+     * this costs a field read on all but the first resume in five minutes.
+     */
+    fun warmPlace() {
+        if (_state.value.isRecording) return
+        if (places?.granted() != true) return
+        startLocating()
+    }
+
+    /**
      * The location permission has just been answered. Try again if it was a yes.
      *
-     * Only while a recording is in progress: a grant that arrives after the clip has been filed
-     * has missed its chance, and the next recording will start its own lookup anyway.
+     * A grant that arrives mid-recording still counts — the clip has not been filed yet — and one
+     * that arrives afterwards warms the fix for the next recording, which is worth having.
      */
     fun onLocationPermissionResult() {
         if (places?.granted() != true) return
-        if (_state.value.isRecording) startLocating()
+        startLocating()
     }
 
     /** Stop recording and file the clip. Returns it, or null if nothing was captured. */
     fun finishRecording(): Clip? {
         val r = recorder ?: return null
         if (!r.isRecording) return null
-        val place = places?.current ?: Naming.NOWHERE
-        val clip = r.stop(place)
-        locating?.cancel()
-        engine?.setTransport(Transport.Stopped)
+        val best = places?.best
+        val clip = r.stop(best?.name ?: Naming.NOWHERE)
+        deck.finishedRecording()
+        engine?.setTransport(deck.transport)
         r.failure?.let { Trouble.record("finish the recording", it) }
+
+        // The lookup is deliberately *not* cancelled when it has only a guess to show for itself.
+        // A four-second recording almost always ends before a fix arrives, and cancelling here is
+        // what used to leave the clip called "Somewhere" for ever. See [nameWhenKnown].
+        val provisional = clip != null && best?.fix != Fix.Named
+        if (!provisional) locating?.cancel()
 
         scope.launch {
             reload()
@@ -429,8 +454,37 @@ object TapeController {
                 if (e != null && index >= 0) e.seek(e.tape.startOf(index))
             }
             publish()
+            if (clip != null && provisional) nameWhenKnown(clip)
         }
         return clip
+    }
+
+    /**
+     * Wait for the place to be known, then file [clip] under it.
+     *
+     * The clip already has a name — the region from the time zone, usually — and this replaces it
+     * with the real one if the lookup lands in time. It is a plain rename, because the tape *is*
+     * the directory: no index to update, nothing to disagree with. The head is safe over it, since
+     * a file already open goes on being readable under its old path and the rescan below hands the
+     * engine a fresh timeline anyway.
+     *
+     * Bounded by [NAMING_GRACE_MS]. Past that the phone has had every chance and the guess is what
+     * the clip keeps — which is still a place you have been, rather than "Somewhere".
+     */
+    private suspend fun nameWhenKnown(clip: Clip) {
+        val p = places ?: return
+        val d = dir ?: return
+        val until = System.currentTimeMillis() + NAMING_GRACE_MS
+        while (System.currentTimeMillis() < until) {
+            if (p.located) break
+            delay(NAMING_POLL_MS)
+        }
+        if (!p.located) return
+        // The tape may have moved on: a delete, another recording, a different tape on the
+        // machine. Only rename what is still there, and only on the tape it was recorded onto.
+        if (d != dir) return
+        Library.rename(d, clip, p.found.name) ?: return
+        reload()
     }
 
     fun toggleRecord() {
@@ -458,21 +512,29 @@ object TapeController {
     // ---------------------------------------------------------------------- ticks
 
     /**
-     * What the end of the tape means, decided per direction.
+     * The head reached an end of the tape. What that means is [Deck]'s to decide.
      *
-     * Running off the end stops the transport — the tape has finished. Running off the front does
-     * not: a rewind that reaches the beginning should sit there with the reels stopped and the
-     * head at zero, ready to play, which is what the machine does.
-     *
-     * Called from the audio thread, so it does the least possible: flips the transport and lets
-     * the ticker publish.
+     * Called from the audio thread, so it does the least possible: asks the deck, copies the
+     * answer into the engine, and lets the ticker publish.
      */
     private fun onRanOff(atStart: Boolean) {
-        // The tape ran out from under the wind, so there is nothing to let go of and nothing to
-        // resume into. Without this, releasing the key afterwards would start playing from an end.
-        wind.cancel()
-        engine?.setTransport(Transport.Stopped)
+        deck.ranOff(atStart)
+        engine?.setTransport(deck.transport)
         if (!atStart) engine?.seek(engine?.tape?.samples ?: 0L)
+    }
+
+    /**
+     * Whether anything still needs polling.
+     *
+     * The wheel's coast counts. So does a wind key still being *held* after the head has stopped
+     * against the front of the tape: letting go of it is about to start the tape again, and
+     * tearing the render thread down in the half second before that would put a gap where there
+     * should be none.
+     */
+    private fun moving(): Boolean {
+        val s = _state.value
+        return s.isRecording || s.transport != Transport.Stopped ||
+            deck.isWinding || engine?.scrub?.isActive == true
     }
 
     private fun startTicking() {
@@ -480,17 +542,20 @@ object TapeController {
         ticker = scope.launch {
             while (true) {
                 publish()
-                val s = _state.value
-                // Stop polling once everything has come to rest, including the wheel's coast.
-                val moving = s.isRecording || s.transport != Transport.Stopped ||
-                    engine?.scrub?.isActive == true
-                if (!moving) break
+                if (!moving()) break
                 delay(TICK_MS)
             }
-            // Nothing is moving, so nothing needs the audio device or the service.
+            // Let go of the ticker slot *before* tearing anything down. Shutting down means
+            // joining the audio thread, and while this job still held the slot a key pressed
+            // during that join found `ticker.isActive` true and did not start one of its own —
+            // leaving the machine with a live transport, no ticker, and a render thread that had
+            // just been stopped underneath it. A tape that looks like it is playing and is silent.
+            ticker = null
             engine?.stop()
             stopService()
             publish()
+            // And if that is what just happened, put it back on its feet.
+            if (moving()) follow()
         }
     }
 
@@ -508,7 +573,7 @@ object TapeController {
             rate = e?.lastRate ?: 0f,
             recorded = r?.samples ?: 0L,
             level = r?.level ?: 0f,
-            place = places?.current ?: Naming.NOWHERE,
+            place = places?.best?.name ?: Naming.NOWHERE,
         )
     }
 
@@ -542,4 +607,15 @@ object TapeController {
     /** Roughly 30 fps while moving. The reels and the counter both read from this. */
     private const val TICK_MS = 33L
 
+    /**
+     * How long a clip filed under a guess keeps waiting for its real name.
+     *
+     * Long enough to cover a cold GPS fix outdoors, which is the case this exists for. Past it the
+     * phone has had every chance — it is indoors, or offline, or refusing — and the region name it
+     * already has is what the clip keeps.
+     */
+    private const val NAMING_GRACE_MS = 90_000L
+
+    /** How often the wait above looks. Cheap: it reads one volatile field. */
+    private const val NAMING_POLL_MS = 500L
 }

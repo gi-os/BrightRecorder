@@ -47,6 +47,31 @@ object Library {
 
     fun delete(dir: File, clip: Clip): Boolean = File(dir, clip.fileName).delete()
 
+    /**
+     * File an existing clip under a different place, keeping the moment it was recorded.
+     *
+     * This is how a clip gets its real name after the fact. A moment is four seconds long and a
+     * location lookup is not, so a clip is very often filed under whatever was known when you
+     * pressed stop — and when the answer arrives a minute later, the clip is still the only place
+     * to put it. There is no database to update, so the rename *is* the update, which is the whole
+     * point of filing by filename.
+     *
+     * The timestamp is taken from the clip rather than from the clock, so the tape does not
+     * reorder itself under the head when this happens.
+     *
+     * Returns the clip under its new name, or null if the rename did not happen — the name was
+     * already right, something else is sitting on the new one, or the file has since gone.
+     */
+    fun rename(dir: File, clip: Clip, place: String): Clip? {
+        val name = Naming.fileName(place, clip.startedAt)
+        if (name == clip.fileName) return null
+        val from = File(dir, clip.fileName)
+        val to = File(dir, name)
+        if (!from.isFile || to.exists()) return null
+        if (!from.renameTo(to)) return null
+        return clip.copy(fileName = name, place = Naming.clean(place))
+    }
+
     /** Bytes the tape occupies, for the settings readout. */
     fun bytes(dir: File): Long =
         dir.listFiles()?.filter { it.isFile }?.sumOf { it.length() } ?: 0L

@@ -110,7 +110,9 @@ private fun Header(state: TapeState) {
         Text(
             when {
                 state.isRecording -> state.place
-                state.isEmpty -> "Press record"
+                // The blank tape is the one moment someone needs telling how to record, and the
+                // wheel gesture is the one that cannot be discovered by looking at the screen.
+                state.isEmpty -> "Press record, or hold the wheel"
                 else -> state.clip?.title ?: ""
             },
             style = MaterialTheme.typography.titleMedium,

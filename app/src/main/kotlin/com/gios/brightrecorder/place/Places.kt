@@ -28,29 +28,68 @@ import kotlin.coroutines.resume
  * lost because the sky was not visible.
  *
  * The fallback chain is ordered by what is useful to read weeks later rather than by precision:
- * a named place beats the street it is on, a street beats a neighbourhood, and a neighbourhood
- * beats a city. What it will never do is fall back to coordinates or to a guess — a clip nobody
- * could name is [Naming.NOWHERE], which reads as somewhere you have been rather than as a lookup
- * you now have to do yourself.
+ * a named place beats the street it is on, a street beats a neighbourhood, a neighbourhood beats a
+ * city, and a city beats the state or the country it is in. It never falls back to coordinates —
+ * a list of clips titled "48.8570, 2.3700" tells you where you were only if you go and look it up,
+ * which is the work this app exists to save.
+ *
+ * It also never falls back to "Somewhere", which it used to, and which was the whole problem. A
+ * moment is four seconds long; the lookup takes anything from one second to never. So the clip was
+ * filed before the answer arrived and got the placeholder, and a tape of clips all called
+ * "Somewhere" is the filing system failing at its only job. Three things fix that, and it takes
+ * all three:
+ *
+ *  - **The fix is kept warm.** [locate] runs when the app comes to the front, not only when you
+ *    press record, so by the time you press it there is usually already an answer.
+ *  - **A stale position is better than none.** A cached fix from an hour ago is the wrong street
+ *    and the right city, and the city is what goes in the title.
+ *  - **There is always a floor.** Failing everything, the time zone and the network's country name
+ *    a region without a permission, a network or a position. See [Coarse].
+ *
+ * What survives is a [Place] that says how well it is known, so a coarse name written into a
+ * filename can be replaced by the real one when the lookup finally lands. See
+ * `TapeController.finishRecording`.
  */
 class Places(private val context: Context) {
 
     /**
-     * Best place name found so far, read when a recording stops.
+     * Best place found so far.
      *
      * Volatile because it is written by the lookup coroutine and read by whichever thread ends
      * the recording, which is not the same one.
+     *
+     * Deliberately *not* cleared between recordings. It used to be, on the reasoning that a new
+     * recording should not inherit an old recording's place — but the phone has not moved between
+     * pressing stop and pressing record again, and clearing it threw away the one answer that was
+     * certain to be ready in time. A fix going stale is handled by looking again, not by forgetting.
      */
     @Volatile
-    var current: String = Naming.NOWHERE
+    var found: Place = Place("", Fix.None)
         private set
 
-    /** True once a fix has produced something better than [Naming.NOWHERE]. */
-    val located: Boolean get() = current != Naming.NOWHERE
+    /**
+     * The name to file a clip under right now, which is never empty.
+     *
+     * [Coarse] is the floor: it needs no permission, no network and no position, so there is
+     * always something. [Naming.NOWHERE] is the last resort behind even that, and reaching it
+     * would mean the phone could not name its own time zone or country.
+     */
+    val best: Place
+        get() {
+            if (found.known) return found
+            val coarse = Coarse.place()
+            return if (coarse.known) coarse else Place(Naming.NOWHERE, Fix.None)
+        }
 
-    fun forget() {
-        current = Naming.NOWHERE
-    }
+    /** True once something better than a guess has been found. */
+    val located: Boolean get() = found.fix == Fix.Named
+
+    /** When [found] was last filled in, so a good answer is not looked up again immediately. */
+    @Volatile
+    private var foundAt = 0L
+
+    /** True while [found] is recent enough to be where the phone is now. See [STALE_MS]. */
+    val fresh: Boolean get() = located && System.currentTimeMillis() - foundAt < STALE_MS
 
     fun granted(): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) ==
@@ -63,6 +102,10 @@ class Places(private val context: Context) {
      * recording is already running, so it is called again as soon as the answer arrives.
      */
     suspend fun locate() {
+        // A name found a minute ago is where the phone is now, and looking again would mean a
+        // fresh GPS request for an answer already on hand. This is what makes it safe to call
+        // whenever the app comes to the front.
+        if (fresh) return
         if (!granted()) return
         val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
 
@@ -70,31 +113,41 @@ class Places(private val context: Context) {
             withTimeout(BUDGET_MS) { fix(manager) }
         }.getOrElse { if (it is TimeoutCancellationException) null else throw it } ?: return
 
-        // A name or nothing at all. Coordinates used to go in here as a fallback for when the
-        // geocoder could not answer, and they turned out to be worse than nothing: a list of clips
-        // titled "48.8570, 2.3700" tells you where you were only if you go and look it up, which
-        // is precisely the work this app exists to save. A clip nobody could name is honestly
-        // [Naming.NOWHERE], and that at least reads as a place you have been.
-        describe(fix)?.let { current = it }
+        // A name or nothing. Nothing means the geocoder had no answer — offline, usually, since
+        // Android's reverse geocoder needs the network — and in that case what is already here is
+        // as good as it gets, which is why this assigns only on success.
+        describe(fix)?.let {
+            found = Place(it, Fix.Named)
+            foundAt = System.currentTimeMillis()
+        }
     }
 
     /** A location, from the cheapest source that has one. */
     private suspend fun fix(manager: LocationManager): Location? {
         // A recent cached fix is free and usually good enough for a neighbourhood name.
-        lastKnown(manager)?.let { return it }
+        lastKnown(manager, fresh = true)?.let { return it }
         for (provider in PROVIDERS) {
             if (!runCatching { manager.isProviderEnabled(provider) }.getOrDefault(false)) continue
             current(manager, provider)?.let { return it }
         }
-        return null
+        // Nothing live. A stale cached position is the wrong street and the right city, and the
+        // city is what ends up in the title — so it beats no name at all, which is what this
+        // returned before. Indoors on a phone nothing else has asked for a position recently,
+        // this is the only branch that ever answers.
+        return lastKnown(manager, fresh = false)
     }
 
-    private fun lastKnown(manager: LocationManager): Location? {
+    /**
+     * The newest cached position, optionally only a recent one.
+     *
+     * [fresh] is a preference, not a requirement — see [fix]. Freshness matters because this app
+     * gets used while travelling, and an old fix is a different city.
+     */
+    private fun lastKnown(manager: LocationManager, fresh: Boolean): Location? {
         var best: Location? = null
         for (provider in PROVIDERS) {
             val loc = runCatching { manager.getLastKnownLocation(provider) }.getOrNull() ?: continue
-            // Old enough and it is a different city; this app gets used while travelling.
-            if (System.currentTimeMillis() - loc.time > STALE_MS) continue
+            if (fresh && System.currentTimeMillis() - loc.time > STALE_MS) continue
             if (best == null || loc.time > best.time) best = loc
         }
         return best
@@ -206,7 +259,10 @@ class Places(private val context: Context) {
             spot != null && city != null && !spot.equals(city, ignoreCase = true) -> "$spot, $city"
             city != null -> city
             spot != null -> spot
-            else -> null
+            // Neither a spot nor anything city-shaped. Rare, and it used to end the chain in
+            // nothing; the state or the country is coarse but it is a real answer, and the ask was
+            // that a clip should never be filed as "Somewhere" when it could at least say the state.
+            else -> address.adminArea ?: address.countryName
         }?.takeIf { it.isNotBlank() }
     }
 

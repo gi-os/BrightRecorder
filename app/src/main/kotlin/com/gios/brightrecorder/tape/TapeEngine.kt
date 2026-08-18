@@ -17,9 +17,10 @@ import kotlin.math.abs
  * operation at different speeds and signs.
  *
  * Two things sit on top of that. Which transport is running, and what the wind keys return to
- * when released, is [WindLatch]. What the *wheel* contributes is [Scrub], which overrides the
- * rate for as long as the wheel is turning without touching the transport at all — so scrolling
- * while playing leaves it playing.
+ * when released, is [Deck] — every rule about that lives there, away from any thread and any
+ * phone, because getting it wrong is not visible until you are holding one. What the *wheel*
+ * contributes is [Scrub], which overrides the rate for as long as the wheel is turning without
+ * touching the transport at all — so scrolling while playing leaves it playing.
  *
  * That is also why crossing from one clip into the next needs no code here. The position is a
  * number on a tape that [Timeline] has already made continuous, so the end of a clip is a
@@ -238,14 +239,19 @@ class TapeEngine(dir: File) {
                 // it again without any special case here.
                 if (!silent) {
                     val end = t.samples.toDouble()
+                    // Only a *moving* tape can run off an end. A stopped one parked against one
+                    // sits there with p == position for ever, and reporting that every block —
+                    // which this used to — meant the end of the tape was announced forty times a
+                    // second to a transport that had already stopped because of it.
+                    val moving = rate != 0f
                     when {
                         p >= end -> {
                             position = end
-                            onEnd?.invoke(false)
+                            if (moving) onEnd?.invoke(false)
                         }
                         p < 0.0 -> {
                             position = 0.0
-                            onEnd?.invoke(true)
+                            if (moving) onEnd?.invoke(true)
                         }
                         else -> position = p
                     }
