@@ -164,6 +164,33 @@ class LabelSpecTest {
         }
     }
 
+    // ----------------------------------------------------------------------- ink
+
+    @Test
+    fun `the inks cycle back to the first`() {
+        var ink = Ink.entries.first()
+        repeat(Ink.entries.size) { ink = ink.next() }
+        assertEquals(Ink.entries.first(), ink)
+    }
+
+    /**
+     * White for the dark half of a halftone, black for the light half, grey for either — which is
+     * why grey is the one that is useful over a photograph rather than a third colour for its own
+     * sake.
+     */
+    @Test
+    fun `there is an ink for each kind of ground`() {
+        assertEquals(listOf(Ink.White, Ink.Grey, Ink.Black), Ink.entries.toList())
+    }
+
+    @Test
+    fun `every ink has a label short enough for a key`() {
+        Ink.entries.forEach {
+            assertTrue("${it.name} label is too long", it.label.length <= 8)
+            assertTrue("${it.name} has no label", it.label.isNotBlank())
+        }
+    }
+
     // ------------------------------------------------------------------- filters
 
     @Test

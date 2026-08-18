@@ -1,3 +1,31 @@
+## BrightRecorder v1.10 — Grey ink
+
+**The pen now draws in grey as well as black and white.**
+
+There is no grey on this panel, so a grey line is a *pattern* — the halftone at half, in the same
+Bayer matrix and at the same cell size the photographs use. That matters more than it sounds: a
+grey stroke laid over a halftoned picture has to be made of the same black and white the picture is,
+or it reads as a different material sitting on top of one rather than as ink on a photograph.
+
+It is also the useful ink over a photograph. A halftone has as much white in it as black, so a white
+line vanishes into its light half and a black one into its dark half. Grey reads on both.
+
+The ink key cycles white → grey → black. Rubbing out stays a mode of its own rather than becoming a
+fourth colour, because it does something different in kind: it removes what it passes over so the
+photograph shows through, where black ink would blot the photograph out.
+
+### One paint, so the preview is a preview
+
+The strokes you see while drawing and the strokes written into the label were being drawn by two
+different code paths — Compose for the preview, `android.graphics` for the save. They agreed about
+solid colours by luck, and had no reason whatever to agree about a pattern. Both now go through the
+same paint, so grey looks the same in your hand as it does on the tape, and the cell is scaled to
+the canvas so it is not coarser in the preview than on the shelf either.
+
+- 198 tests, up from 195.
+
+---
+
 ## BrightRecorder v1.9 — The label, properly
 
 **Four things reported against v1.8, and the first is why the others mattered.**
