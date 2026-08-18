@@ -1,3 +1,65 @@
+## BrightRecorder v1.8 — Labels
+
+**A cassette you have to play to identify is the problem the shelf was supposed to solve. Now you
+write on it.**
+
+### Draw on the label
+
+A finger draws; **RUB** rubs out; **UNDO** takes back the last stroke. Strokes are kept as strokes
+rather than as bitmaps, which is what makes undo a single step instead of a megabyte of history per
+mark, and they are only flattened into the label when you save.
+
+The rub-out genuinely removes what it passes over rather than painting black on top — it has to,
+because the drawing sits over the photograph and black ink would blot the photograph out instead of
+revealing it.
+
+### Put a photograph on it
+
+**PHOTO** opens a picker over the phone's own camera roll. Not the system one: that reads
+MediaStore, and nothing on LightOS keeps MediaStore current, so a photograph taken minutes ago is
+simply not offered. This walks DCIM and Pictures directly, the way BrightChat does, and a picture is
+visible the moment it is written.
+
+**STARRED** narrows the grid to the photographs you starred in Roll. A star is the one fact about a
+picture that only Roll knows — `IS_FAVORITE` exists in MediaStore but is writable in practice only
+by the system gallery — so Roll offers its list through a read-only provider and this reads it. The
+key appears only when Roll is installed and has something to say; on a roll a few hundred pictures
+deep it is the difference between finding the photograph you want and scrolling for it.
+
+The picture is reduced to the two colours this panel has by an ordered Bayer halftone, once, when
+you choose it. Letting the display do that conversion produces a grey smear; doing it deliberately
+produces something that looks printed, which is what belongs on a cassette.
+
+### Set the title on it, in a face you choose
+
+**TYPE** puts the tape's name on the label and walks through five faces — plain, serif, typed,
+spaced and heavy — coming round to off again. Five rather than fifty because on a panel this size
+the difference between two similar grotesques is invisible, while the difference between a plain
+face, a serif, a typewriter and spaced-out capitals is the whole character of the label.
+
+The title stays **live**: it is stored as a choice, not burned into the drawing. Rename the tape and
+the label follows. Change your mind about the face and nothing has to be rubbed out.
+
+### The shelf shows all of it
+
+Every cassette on the shelf is drawn with its own label — photograph, handwriting and title —
+instead of the abstract pattern, which now only stands in for a tape nobody has labelled yet. That
+is what the shelf was for: picking a tape by recognising it rather than by reading a list. **LOAD**
+puts the one you are looking at on the machine, as before. The pattern moved to the naming sheet,
+which is where you are when you are deciding what a tape is.
+
+### Where it all lives
+
+In the tape's own folder, beside the recordings: `label-photo.png`, `label-drawing.png` and a
+one-line `label-title.txt`. Same rule as everything else here — a tape is a directory, and there is
+no index anywhere that could disagree with it. Copy the folder off the phone and the label goes with
+it. Each image is written to a temporary name and renamed into place, so a process killed mid-save
+leaves the label you had rather than half of a new one.
+
+- 182 tests, up from 172.
+
+---
+
 ## BrightRecorder v1.7 — Letting go of a wind key, for the last time
 
 **Reported four times: rewind or fast-forward while the tape is playing, let go, and it does not

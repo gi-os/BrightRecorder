@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.gios.brightrecorder.Prefs
+import com.gios.brightrecorder.label.Label
 import com.gios.brightrecorder.place.Fix
 import com.gios.brightrecorder.place.Places
 import com.gios.brightrecorder.report.Trouble
@@ -47,6 +48,15 @@ data class TapeState(
     val level: Float = 0f,
     /** Where the current recording will be filed, as far as the fix has got. */
     val place: String = Naming.NOWHERE,
+    /**
+     * Bumped whenever a label is written on.
+     *
+     * A label is a pair of files, not a field, so nothing about [tapes] changes when one is edited
+     * and the shelf would go on drawing the picture it had already decoded. This is what tells it
+     * to look again — a counter rather than the art itself, because the shelf shows one tape and
+     * carrying every tape's bitmaps through the state would hold the lot in memory.
+     */
+    val labelRevision: Int = 0,
 ) {
     val clip: Clip? get() = clipAt(position)
 
@@ -220,7 +230,11 @@ object TapeController {
         val shelf = root ?: return
         scope.launch {
             if (_state.value.tapes.size <= 1) return@launch
+            val gone = dirOf(tape)
             if (!Tapes.delete(shelf, tape)) return@launch
+            // The folder is gone; the decoded label would otherwise sit in memory until something
+            // else evicted it, and a new tape landing on the same path would inherit it.
+            gone?.let { Label.forget(it) }
             if (tape.dirName == current?.dirName) {
                 Tapes.list(shelf).firstOrNull()?.let { openTape(it) }
             } else {
@@ -228,6 +242,24 @@ object TapeController {
             }
         }
     }
+
+    /**
+     * The folder a tape lives in, for anything that keeps its own files beside the recordings.
+     *
+     * The label is the only such thing so far. Exposed rather than having the label store find its
+     * own way there, because where a tape lives is [Tapes]' business and this is the one object
+     * that knows which shelf is in use.
+     */
+    fun dirOf(tape: Tape): File? = root?.let { Tapes.dirOf(it, tape) }
+
+    /** A label was written on. Nothing about the tape changed, but what it looks like did. */
+    fun labelChanged() {
+        labelRevision++
+        refreshShelf()
+    }
+
+    /** See [TapeState.labelRevision]. */
+    private var labelRevision = 0
 
     /** Re-read the shelf and publish. Cheap: a listing and a header read per clip. */
     private fun refreshShelf() {
@@ -631,6 +663,7 @@ object TapeController {
             recorded = r?.samples ?: 0L,
             level = r?.level ?: 0f,
             place = places?.best?.name ?: Naming.NOWHERE,
+            labelRevision = labelRevision,
         )
     }
 
