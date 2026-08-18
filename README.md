@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.8.10** (tag `v1.8.10`).
+**Current release: v1.9.11** (tag `v1.9.11`).
 
 ## Install by hand
 
@@ -320,7 +320,16 @@ rub-out really removes what it passes over rather than painting black over it �
 the drawing sits above the photograph and black ink would blot the photograph out instead of
 revealing it.
 
-**A photograph goes behind it.** The picker reads DCIM and Pictures directly rather than MediaStore,
+**The editor shows exactly what the shelf will show.** The stored label is the shape of the label
+window on the cassette, and the window is derived from the stored size rather than chosen
+separately — one set of numbers, with a test that fails if they drift. They did drift once, and the
+symptom was a photograph that filled the editor and then sat letterboxed on the tape.
+
+**A photograph goes behind it**, and moves: drag to place it, pinch to zoom, and cycle six grades —
+plain, bright, dark, punch, soft, invert. A dark room halftones to almost solid black and a bright
+sky to almost solid white, so on two colours the grade is often the difference between a picture and
+a smudge. The picked photograph is *kept* beside the label and everything is rendered from it, which
+is what makes moving and grading reversible rather than one-shot. The picker reads DCIM and Pictures directly rather than MediaStore,
 for the reason BrightChat found first: nothing on LightOS keeps MediaStore current, so a picture
 taken minutes ago is not in it. **STARRED** narrows the grid to what you starred in Roll, read from
 its own read-only provider — a star is the one fact about a photograph that lives nowhere else,
@@ -331,12 +340,11 @@ The picture is halftoned to the two colours the panel has once, at pick time, wi
 dither. Letting the display do that conversion gives a grey smear; doing it deliberately gives
 something that looks printed.
 
-**The title goes on top**, in one of five faces — plain, serif, typed, spaced, heavy. Five and not
-fifty because at this size the difference between two similar grotesques is invisible while the
-difference between those five is the whole character of a label. It is stored as a choice rather
-than burned in, so renaming the tape moves the label with it and changing the face rubs nothing out.
+**The title goes on top**, dragged anywhere, pinched to size and turn, in one of nine faces — plain, serif, typed, spaced, heavy, cursive, comic, hand and pixel. Comic Sans is not on Android; `casual` is Coming Soon, the same idea done better. Pixel has no typeface at all, because Android ships no bitmap font: it is set small and blown back up unfiltered, so every glyph becomes blocks. It is stored as a choice rather than burned in, so renaming the tape moves the label with it and changing the face rubs nothing out.
 
-It all lives in the tape's own folder: `label-photo.png`, `label-drawing.png`, `label-title.txt`.
+The pen draws in black as well as white — black over the light half of a halftone, white over the dark half — and the eraser is a third thing again, removing what it passes over rather than painting black, because the drawing sits above the photograph.
+
+It all lives in the tape's own folder: `label-source.jpg`, `label-photo.png`, `label-drawing.png`, `label.txt`.
 Same rule as the recordings — a tape is a directory and there is no index to disagree with it. Each
 image is written to a temporary name and renamed into place, so a process killed mid-save leaves the
 label you had rather than half of a new one.
@@ -421,6 +429,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.9.11 | The label in the editor is the label on the tape — one shape, derived in one place. Photographs move, zoom and grade; titles move, turn and size, in nine faces including cursive, comic and pixel; the pen draws in black as well as white. |
 | v1.8.10 | Labels: draw on one with a finger, put a photograph on it from the phone's roll (starred-only via Roll), and set the tape's title on it in one of five faces. The shelf draws every cassette with its own label, so you pick a tape by recognising it. |
 | v1.7.9 | Letting go of rewind or fast-forward carries on playing. The engine reads the transport from the deck instead of keeping a copy the audio thread could clobber, and the wind keys issue their release from a `finally` so it cannot be lost. |
 | v1.6.8 | Every clip is measured for loudness and played back at the same level, about as loud as music on a streaming service — new recordings and everything already on the tape, with nothing rewritten. |

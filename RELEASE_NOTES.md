@@ -1,3 +1,69 @@
+## BrightRecorder v1.9 — The label, properly
+
+**Four things reported against v1.8, and the first is why the others mattered.**
+
+### The label in the editor is the label on the tape
+
+They were different shapes. The editor composed a 2.5:1 canvas; the cassette's label window was
+whatever fell out of the size the drawing happened to be given, about 4:1. So a photograph filled
+the editor and then sat letterboxed in the middle of the label on the shelf — which is exactly the
+"images do not fill the entire label" that was reported.
+
+The stored label is now the window's own shape, and the window is *derived from it* rather than
+chosen separately — one set of numbers, in one place, with a test that fails if the two ever drift
+apart again. The cassette is drawn at a fixed aspect for the same reason: give it any other
+proportions and the label stops fitting. A picture fills its label exactly now, with no crop and no
+letterbox.
+
+### Move the photograph, and grade it
+
+Drag it with a finger; pinch to zoom into it. Six grades on a key that cycles: plain, bright, dark,
+punch, soft and invert. A dark room halftones to almost solid black and a bright sky to almost solid
+white, so on a two-colour panel the grade is often the difference between a picture and a smudge —
+and invert is frequently the more legible of the two.
+
+That needed the picked photograph to be **kept**, which it was not: the first version halftoned it
+at pick time and threw the original away, so every later decision would have been destructive —
+nudging it would have halftoned an already-halftoned image, and a grade would have had nothing to
+work from. The source is now stored beside the label and everything is rendered from it, so moving
+and grading stay reversible for as long as the tape exists.
+
+The nudge is clamped to what the picture has to give: pushed to its limit an edge lands exactly on
+the edge of the label, so it is not possible to shove a photograph off its own label.
+
+### Move the title, turn it, and set it in something with character
+
+Drag it anywhere on the label; pinch to size it and turn it. STRAIGHT puts it back.
+
+Four new faces: **cursive**, **comic**, **hand** and **pixel**, alongside plain, serif, typed,
+spaced and heavy. Comic Sans is not on Android and never has been — `casual` is Coming Soon, which
+is the same idea done better — and `cursive` is properly joined up. **Pixel** has no typeface at all
+because Android ships no bitmap font: it is set small and blown back up with no filtering, so every
+glyph becomes blocks. That is what a bitmap font is, and it is what this panel renders best.
+
+### Draw in black as well as white
+
+A key swaps the ink. Black is what you want over the light half of a halftone, white over the dark
+half, and the eraser is a third thing again — it *removes* what it passes over rather than painting
+black, because the drawing sits above the photograph and black ink would blot the photograph out
+instead of revealing it.
+
+### One row of keys could not hold all of that
+
+So there are three tools — DRAW, PHOTO, TEXT — and both the keys and the meaning of a finger on the
+label follow the one in hand. Without that the bottom of the screen would be eleven keys wide and a
+drag would have to guess whether you meant to draw, move a picture or move a title.
+
+### Under the hood
+
+- `LabelSpec` — where everything sits, which face, which grade, as numbers rather than pixels. That
+  is what makes all of it reversible.
+- `label-source.jpg` beside the label, so a photograph can be moved after it is chosen.
+- A label written by v1.8 still opens; its two-line file is read and replaced.
+- 195 tests, up from 182.
+
+---
+
 ## BrightRecorder v1.8 — Labels
 
 **A cassette you have to play to identify is the problem the shelf was supposed to solve. Now you

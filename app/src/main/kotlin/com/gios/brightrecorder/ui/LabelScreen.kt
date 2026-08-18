@@ -5,11 +5,15 @@ import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Paint as AndroidPaint
 import android.graphics.Path as AndroidPath
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateRotation
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +32,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,15 +48,15 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.gios.brightrecorder.label.Label
-import com.gios.brightrecorder.label.LabelFont
+import com.gios.brightrecorder.label.LabelSpec
 import com.gios.brightrecorder.label.LabelTitle
-import com.gios.brightrecorder.photo.Dither
 import com.gios.brightrecorder.photo.Gallery
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.tape.Tape
@@ -66,53 +71,63 @@ import kotlinx.coroutines.withContext
  * Writing on the label.
  *
  * A cassette without something written on it is a cassette you have to play to identify, which is
- * the problem this whole screen exists to solve. A name in a list does some of that; a scrawl in
- * your own handwriting and a photograph of where you were does the rest, and does it at a glance
- * from across the room.
+ * the problem this screen exists to solve. A name in a list does some of that; a scrawl in your own
+ * handwriting and a photograph of where you were does the rest, at a glance from across the room.
  *
- * ### Drawing, and why the strokes are kept
+ * ### Three tools, because one row of keys cannot hold them all
  *
- * A stroke is a list of points, and the strokes are kept as a list, so **undo is dropping the last
- * one** rather than a stack of bitmaps. That matters on a phone with this much memory: a bitmap
- * undo history at label resolution is a megabyte a step.
+ * The label is one thing but there are three ways to change it, and each wants different keys and a
+ * different meaning for a finger dragged across the label. So there is a [Tool] — DRAW, PHOTO,
+ * TEXT — and the keys and the gesture both follow it. Without that the bottom of the screen would
+ * be eleven keys wide and a drag would have to guess what you meant.
  *
- * The strokes are drawn live by Compose in screen coordinates and only flattened to a bitmap when
- * you save. Flattening on every stroke would mean an allocation and a rasterise per finger-lift.
+ * - **DRAW** — a finger draws. INK swaps black for white, RUB rubs out, UNDO takes back a stroke.
+ * - **PHOTO** — a finger moves the picture, two fingers zoom it. FILTER cycles how it is graded.
+ * - **TEXT** — a finger moves the title, two fingers size and turn it. FACE cycles the face.
  *
- * ### The photograph is dithered on the way in
+ * ### What is a stroke and what is a placement
  *
- * Once, at pick time, by [Dither] — not at every draw. A photograph on this panel has to become
- * black and white one way or another, and doing it deliberately as a halftone is the difference
- * between a printed-looking label and a grey smear. See [Dither.labelFrom].
+ * Strokes are kept as strokes, so **undo is dropping the last one** rather than a stack of bitmaps —
+ * which at label resolution would be a megabyte a step. They are flattened into the drawing only on
+ * save.
  *
- * ### The title is a layer, not ink
- *
- * The tape's name can be set on the label in one of a few faces, and it stays *live*: it is stored
- * as a choice rather than burned into the drawing, so renaming the tape moves the label with it and
- * changing your mind about the face does not mean rubbing the old one out. See [LabelTitle].
+ * Everything else — where the picture sits, how far into it you are, where the title is, how big,
+ * how turned, which face, which filter — is a number in [LabelSpec], not pixels. That is what makes
+ * all of it reversible: nudging a photograph re-renders it from the picture you picked rather than
+ * from the halftoned copy, and changing your mind about a face rubs nothing out.
  */
 @Composable
 fun LabelScreen(tape: Tape, onClose: () -> Unit) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val dir = remember(tape.dirName) { TapeController.dirOf(tape) }
 
+    var spec by remember { mutableStateOf(LabelSpec()) }
     var photo by remember { mutableStateOf<ImageBitmap?>(null) }
+    var existing by remember { mutableStateOf<ImageBitmap?>(null) }
+    var hasSource by remember { mutableStateOf(false) }
+
+    var tool by remember { mutableStateOf(Tool.Draw) }
     var picking by remember { mutableStateOf(false) }
     var erasing by remember { mutableStateOf(false) }
-    var title by remember { mutableStateOf(LabelTitle.Title()) }
+    var blackInk by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
-    // Every stroke drawn this session, plus whatever was already on the label underneath.
     val strokes = remember { mutableStateListOf<Stroke2D>() }
-    var existing by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(dir) {
-        if (dir == null) return@LaunchedEffect
-        photo = Label.readPhoto(dir)
-        existing = Label.readDrawing(dir)
-        title = LabelTitle.read(dir)
+        val d = dir ?: return@LaunchedEffect
+        spec = LabelSpec.read(d)
+        existing = Label.readDrawing(d)
+        hasSource = Label.sourceFile(d).isFile
+        photo = if (hasSource) Label.renderPhoto(d, spec) else null
+    }
+
+    // Re-render whenever the placement or the grade changes. Cheap enough to do live: it is one
+    // scale and one threshold pass over 800x256, not a decode.
+    LaunchedEffect(spec.photoScale, spec.photoX, spec.photoY, spec.filter, hasSource) {
+        val d = dir ?: return@LaunchedEffect
+        if (hasSource) photo = Label.renderPhoto(d, spec)
     }
 
     BackHandler { if (picking) picking = false else onClose() }
@@ -122,7 +137,13 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
             onPick = { file ->
                 picking = false
                 scope.launch {
-                    photo = usePhoto(dir, file)
+                    val d = dir ?: return@launch
+                    if (keepSource(d, file)) {
+                        hasSource = true
+                        // A newly chosen picture starts square on, whatever the last one was left at.
+                        spec = spec.copy(photoScale = 1f, photoX = 0f, photoY = 0f)
+                        photo = Label.renderPhoto(d, spec)
+                    }
                 }
             },
             onClose = { picking = false },
@@ -135,98 +156,107 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
 
         Box(Modifier.weight(1f).fillMaxWidth().padding(16.dp), Alignment.Center) {
             Column(Modifier.fillMaxWidth()) {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(Label.WIDTH.toFloat() / Label.HEIGHT)
-                        .background(Color.Black)
-                        .border(1.dp, Faint)
-                        .clipToBounds()
-                        .onSizeChanged { canvasSize = it }
-                        .pointerInput(erasing) {
-                            awaitEachGesture {
-                                val down = awaitFirstDown()
-                                down.consume()
-                                val stroke = Stroke2D(erasing, mutableStateListOf(down.position))
-                                strokes.add(stroke)
-                                var stillDown = true
-                                while (stillDown) {
-                                    val event = awaitPointerEvent()
-                                    event.changes.forEach { change ->
-                                        if (change.pressed) {
-                                            stroke.points.add(change.position)
-                                            change.consume()
-                                        }
-                                    }
-                                    stillDown = event.changes.any { it.pressed }
-                                }
-                            }
-                        },
-                ) {
-                    photo?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    existing?.let {
-                        Image(
-                            bitmap = it,
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    StrokeLayer(strokes)
-                    if (title.shown && tape.name.isNotBlank()) {
-                        TitleLayer(tape.name, title.font)
-                    }
-                }
+                LabelCanvas(
+                    tape = tape,
+                    spec = spec,
+                    photo = photo,
+                    existing = existing,
+                    strokes = strokes,
+                    tool = tool,
+                    erasing = erasing,
+                    blackInk = blackInk,
+                    onSpec = { spec = it },
+                    onSize = { canvasSize = it },
+                )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    when {
-                        erasing -> "Rub out what you drew."
-                        title.shown ->
-                            "Title set in ${title.font.label.lowercase()} — TYPE again for the next face."
-                        else -> "Write on it with a finger."
-                    },
+                    hint(tool, erasing, blackInk, spec, hasSource),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Dim,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
 
         Rule()
+        // Which tool is in hand. Always on screen, because the same drag means three things and
+        // there has to be somewhere that says which.
         Row(Modifier.fillMaxWidth()) {
-            TransportKey(glyph = "BACK", modifier = Modifier.weight(1f), onClick = onClose)
-            TransportKey(glyph = "PHOTO", modifier = Modifier.weight(1f)) { picking = true }
-            // One key for the title: the first press puts the tape's name on it, and every press
-            // after walks through the faces until it comes round to off again. An on/off key and a
-            // separate font key would be two keys for one decision, and there is not room for two.
-            TransportKey(
-                glyph = "TYPE",
-                held = title.shown,
-                enabled = tape.name.isNotBlank(),
-                modifier = Modifier.weight(1f),
-            ) {
-                title = when {
-                    !title.shown -> LabelTitle.Title(shown = true, font = LabelFont.Plain)
-                    title.font == LabelFont.entries.last() -> LabelTitle.Title(shown = false)
-                    else -> title.copy(font = title.font.next())
+            Tool.entries.forEach { each ->
+                TransportKey(
+                    glyph = each.label,
+                    held = tool == each,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    tool = each
+                    erasing = false
                 }
             }
-            TransportKey(
-                glyph = if (erasing) "PEN" else "RUB",
-                held = erasing,
-                modifier = Modifier.weight(1f),
-            ) { erasing = !erasing }
-            TransportKey(
-                glyph = "UNDO",
-                enabled = strokes.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-            ) { strokes.removeLastOrNull() }
+        }
+        Rule()
+        Row(Modifier.fillMaxWidth()) {
+            TransportKey(glyph = "BACK", modifier = Modifier.weight(1f), onClick = onClose)
+            when (tool) {
+                Tool.Draw -> {
+                    TransportKey(
+                        glyph = if (blackInk) "BLACK" else "WHITE",
+                        held = blackInk,
+                        enabled = !erasing,
+                        modifier = Modifier.weight(1f),
+                    ) { blackInk = !blackInk }
+                    TransportKey(
+                        glyph = "RUB",
+                        held = erasing,
+                        modifier = Modifier.weight(1f),
+                    ) { erasing = !erasing }
+                    TransportKey(
+                        glyph = "UNDO",
+                        enabled = strokes.isNotEmpty(),
+                        modifier = Modifier.weight(1f),
+                    ) { strokes.removeLastOrNull() }
+                }
+
+                Tool.Photo -> {
+                    TransportKey(glyph = "PICK", modifier = Modifier.weight(1f)) { picking = true }
+                    TransportKey(
+                        glyph = spec.filter.label,
+                        enabled = hasSource,
+                        modifier = Modifier.weight(1f),
+                    ) { spec = spec.copy(filter = spec.filter.next()) }
+                    TransportKey(
+                        glyph = "CLEAR",
+                        enabled = hasSource,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        scope.launch {
+                            dir?.let { Label.clearPhoto(it) }
+                            hasSource = false
+                            photo = null
+                            spec = spec.copy(photoScale = 1f, photoX = 0f, photoY = 0f)
+                        }
+                    }
+                }
+
+                Tool.Text -> {
+                    TransportKey(
+                        glyph = if (spec.titleShown) "OFF" else "ON",
+                        held = spec.titleShown,
+                        enabled = tape.name.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                    ) { spec = spec.copy(titleShown = !spec.titleShown) }
+                    TransportKey(
+                        glyph = spec.font.label,
+                        enabled = spec.titleShown,
+                        modifier = Modifier.weight(1f),
+                    ) { spec = spec.copy(font = spec.font.next()) }
+                    TransportKey(
+                        glyph = "STRAIGHT",
+                        enabled = spec.titleShown,
+                        modifier = Modifier.weight(1f),
+                    ) { spec = spec.copy(titleAngle = 0f, titleX = 0.5f, titleY = 0.82f) }
+                }
+            }
             TransportKey(
                 glyph = "SAVE",
                 held = true,
@@ -235,13 +265,14 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
             ) {
                 saving = true
                 scope.launch {
-                    if (dir != null) {
+                    val d = dir
+                    if (d != null) {
                         if (strokes.isNotEmpty()) {
-                            val flattened = flatten(existing, strokes, canvasSize)
-                            if (flattened != null) Label.writeDrawing(dir, flattened)
+                            flatten(existing, strokes, canvasSize)?.let { Label.writeDrawing(d, it) }
                         }
-                        LabelTitle.write(dir, title)
-                        Label.forget(dir)
+                        LabelSpec.write(d, spec)
+                        if (hasSource) Label.renderPhoto(d, spec)
+                        Label.forget(d)
                     }
                     TapeController.labelChanged()
                     saving = false
@@ -252,19 +283,193 @@ fun LabelScreen(tape: Tape, onClose: () -> Unit) {
     }
 }
 
-/** One continuous mark. [erase] marks it as a rub-out rather than a line of ink. */
-private class Stroke2D(val erase: Boolean, val points: MutableList<Offset>)
+/** Which of the three things a finger on the label is doing. */
+private enum class Tool(val label: String) {
+    Draw("DRAW"),
+    Photo("PHOTO"),
+    Text("TEXT"),
+}
+
+private fun hint(
+    tool: Tool,
+    erasing: Boolean,
+    blackInk: Boolean,
+    spec: LabelSpec,
+    hasSource: Boolean,
+): String = when {
+    tool == Tool.Draw && erasing -> "Rub out what you drew."
+    tool == Tool.Draw -> "Draw with a finger, in ${if (blackInk) "black" else "white"}."
+    tool == Tool.Photo && !hasSource -> "PICK a photograph to put behind the label."
+    tool == Tool.Photo -> "Drag to move it, pinch to zoom. Graded ${spec.filter.label.lowercase()}."
+    spec.titleShown -> "Drag to move the title, pinch to size and turn it. ${spec.font.label}."
+    else -> "Turn the title ON to put this tape's name on its label."
+}
+
+/**
+ * The label itself, at exactly the shape it will be on the shelf.
+ *
+ * The aspect comes from [Label], and the cassette's window is derived from the same two numbers, so
+ * what is composed here is what ends up on the tape — which it was not before: the editor drew a
+ * 2.5:1 canvas and the cassette had a 4:1 window, so a photograph filled this and then sat
+ * letterboxed on the shelf.
+ */
+@Composable
+private fun LabelCanvas(
+    tape: Tape,
+    spec: LabelSpec,
+    photo: ImageBitmap?,
+    existing: ImageBitmap?,
+    strokes: MutableList<Stroke2D>,
+    tool: Tool,
+    erasing: Boolean,
+    blackInk: Boolean,
+    onSpec: (LabelSpec) -> Unit,
+    onSize: (IntSize) -> Unit,
+) {
+    val specNow by rememberUpdatedState(spec)
+    val onSpecNow by rememberUpdatedState(onSpec)
+    var size by remember { mutableStateOf(IntSize.Zero) }
+
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(Label.WIDTH.toFloat() / Label.HEIGHT)
+            .background(Color.Black)
+            .border(1.dp, Faint)
+            .clipToBounds()
+            .onSizeChanged {
+                size = it
+                onSize(it)
+            }
+            // Keyed on the tool so that switching tools rebuilds the gesture with the right
+            // meaning — a drag is a stroke, a pan, or moving the title, and never two of those.
+            .pointerInput(tool, erasing, blackInk) {
+                when (tool) {
+                    Tool.Draw -> awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        val stroke = Stroke2D(erasing, blackInk, mutableStateListOf(down.position))
+                        strokes.add(stroke)
+                        var stillDown = true
+                        while (stillDown) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                if (change.pressed) {
+                                    stroke.points.add(change.position)
+                                    change.consume()
+                                }
+                            }
+                            stillDown = event.changes.any { it.pressed }
+                        }
+                    }
+
+                    Tool.Photo -> transformGesture { pan, zoom, _ ->
+                        val current = specNow
+                        val w = size.width.coerceAtLeast(1)
+                        val h = size.height.coerceAtLeast(1)
+                        onSpecNow(
+                            current
+                                .withPhotoScale(current.photoScale * zoom)
+                                // Dragging right should move the picture right, which means moving
+                                // the window the other way — hence the minus.
+                                .withPhotoAt(
+                                    current.photoX - pan.x / w * 2f,
+                                    current.photoY - pan.y / h * 2f,
+                                ),
+                        )
+                    }
+
+                    Tool.Text -> transformGesture { pan, zoom, turn ->
+                        val current = specNow
+                        val w = size.width.coerceAtLeast(1)
+                        val h = size.height.coerceAtLeast(1)
+                        onSpecNow(
+                            current
+                                .withTitleAt(current.titleX + pan.x / w, current.titleY + pan.y / h)
+                                .withTitleSize(current.titleSize * zoom)
+                                .copy(titleAngle = current.titleAngle + turn),
+                        )
+                    }
+                }
+            },
+    ) {
+        photo?.let {
+            Image(
+                bitmap = it,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        existing?.let {
+            Image(
+                bitmap = it,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+        StrokeLayer(strokes)
+        if (spec.titleShown && tape.name.isNotBlank()) {
+            Canvas(Modifier.fillMaxSize()) {
+                drawIntoCanvas { canvas ->
+                    LabelTitle.draw(
+                        canvas.nativeCanvas,
+                        tape.name,
+                        spec,
+                        this.size.width.toInt(),
+                        this.size.height.toInt(),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Pan, zoom and rotate, reported as they happen.
+ *
+ * Compose has `detectTransformGestures`, and this is it with one difference that matters here: it
+ * reports a one-finger drag as pan from the first movement, with no slop to cross. On a label this
+ * small a gesture that has to travel before it starts feels like the thing is stuck.
+ */
+private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.transformGesture(
+    onChange: (pan: Offset, zoom: Float, rotation: Float) -> Unit,
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        do {
+            val event = awaitPointerEvent()
+            val cancelled = event.changes.any { it.isConsumed }
+            if (!cancelled) {
+                val zoom = event.calculateZoom()
+                val rotation = event.calculateRotation()
+                val pan = event.calculatePan()
+                if (zoom != 1f || rotation != 0f || pan != Offset.Zero) {
+                    onChange(pan, zoom, rotation)
+                }
+                event.changes.forEach { if (it.positionChange() != Offset.Zero) it.consume() }
+            }
+        } while (!cancelled && event.changes.any { it.pressed })
+    }
+}
+
+/** One continuous mark. */
+private class Stroke2D(
+    val erase: Boolean,
+    val black: Boolean,
+    val points: MutableList<Offset>,
+)
 
 /**
  * The strokes drawn live, in screen coordinates.
  *
- * White ink, because the label is black. A rub-out is drawn in black over the top rather than by
- * removing anything, which is both what an eraser does on paper and the only thing that can rub out
- * a mark that is part of the bitmap loaded from disk.
+ * A rub-out is drawn in black here and *removes* pixels when it is flattened. On screen that is the
+ * same thing, because what is under it in the preview is the label's own black.
  */
 @Composable
 private fun StrokeLayer(strokes: List<Stroke2D>) {
-    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+    Canvas(Modifier.fillMaxSize()) {
         strokes.forEach { stroke ->
             val path = androidx.compose.ui.graphics.Path().apply {
                 stroke.points.firstOrNull()?.let { moveTo(it.x, it.y) }
@@ -272,7 +477,7 @@ private fun StrokeLayer(strokes: List<Stroke2D>) {
             }
             drawPath(
                 path = path,
-                color = if (stroke.erase) Color.Black else Color.White,
+                color = if (stroke.erase || stroke.black) Color.Black else Color.White,
                 style = Stroke(
                     width = if (stroke.erase) ERASER_PX else PEN_PX,
                     cap = StrokeCap.Round,
@@ -290,8 +495,8 @@ private const val ERASER_PX = 28f
  * The strokes burned into a label-sized bitmap, on top of whatever was already there.
  *
  * Screen coordinates are scaled to label coordinates, so the same drawing comes out the same size
- * whatever the panel is. Done on a background thread: it allocates a bitmap the size of the label
- * and rasterises every stroke into it.
+ * whatever the panel is. Done off the main thread: it allocates a bitmap the size of the label and
+ * rasterises every stroke into it.
  */
 private suspend fun flatten(
     existing: ImageBitmap?,
@@ -320,14 +525,18 @@ private suspend fun flatten(
     }
     strokes.forEach { stroke ->
         if (stroke.points.isEmpty()) return@forEach
-        // A rub-out has to actually remove pixels, not paint black ones: the label is drawn over
-        // the photograph, so black ink would blot the photograph out instead of revealing it.
-        paint.color = if (stroke.erase) android.graphics.Color.TRANSPARENT else
-            android.graphics.Color.WHITE
+        // A rub-out has to actually remove pixels rather than paint black ones: the drawing sits
+        // over the photograph, so black ink would blot the photograph out instead of revealing it.
+        // Black *ink*, on the other hand, really is black, and is how you draw on a light picture.
         paint.xfermode = if (stroke.erase) {
             android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
         } else {
             null
+        }
+        paint.color = when {
+            stroke.erase -> android.graphics.Color.TRANSPARENT
+            stroke.black -> android.graphics.Color.BLACK
+            else -> android.graphics.Color.WHITE
         }
         paint.strokeWidth = (if (stroke.erase) ERASER_PX else PEN_PX) * scaleX
         val path = AndroidPath().apply {
@@ -340,35 +549,8 @@ private suspend fun flatten(
     out
 }
 
-/** Decode, crop, halftone and store a picked photograph. Returns it for the preview. */
-private suspend fun usePhoto(dir: File?, file: File): ImageBitmap? {
-    if (dir == null) return null
-    return withContext(Dispatchers.Default) {
-        val decoded = Gallery.decode(file, maxOf(Label.WIDTH, Label.HEIGHT) * 2)
-            ?: return@withContext null
-        val label = Dither.labelFrom(decoded, Label.WIDTH, Label.HEIGHT)
-        Label.writePhoto(dir, label)
-        label.asImageBitmap()
-    }
-}
-
-/**
- * The title as it will appear, drawn over the label at the size the editor is showing it.
- *
- * The same routine the cassette uses, so the face you are choosing between is the one that ends up
- * on the shelf rather than an approximation of it.
- */
-@Composable
-private fun TitleLayer(text: String, font: LabelFont) {
-    androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-        drawIntoCanvas { canvas ->
-            LabelTitle.draw(
-                canvas.nativeCanvas,
-                text,
-                font,
-                size.width.toInt(),
-                size.height.toInt(),
-            )
-        }
-    }
+/** Decode a picked file and keep it as this tape's source photograph. */
+private suspend fun keepSource(dir: File, file: File): Boolean = withContext(Dispatchers.Default) {
+    val decoded = Gallery.decode(file, 1600) ?: return@withContext false
+    Label.putSource(dir, decoded)
 }

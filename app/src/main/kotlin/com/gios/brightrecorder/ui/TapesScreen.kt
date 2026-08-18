@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
@@ -125,7 +126,10 @@ fun TapesScreen(state: TapeState) {
                     fill = tape.samples.toFloat() /
                         (tapes.maxOf { it.samples }.coerceAtLeast(1L)).toFloat(),
                     selected = tape.dirName == state.tape?.dirName,
-                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    // The fixed aspect is load-bearing, not cosmetic: the label window's shape is
+                    // derived from it, and the editor composes a label of exactly that shape. Give
+                    // the cassette any other proportions and a photograph stops filling its label.
+                    modifier = Modifier.fillMaxWidth().aspectRatio(CassetteShape.ASPECT),
                 )
             }
         }

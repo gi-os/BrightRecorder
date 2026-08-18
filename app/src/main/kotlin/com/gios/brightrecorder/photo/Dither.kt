@@ -1,6 +1,8 @@
 package com.gios.brightrecorder.photo
 
 import android.graphics.Bitmap
+import com.gios.brightrecorder.label.LabelFilter
+import com.gios.brightrecorder.label.LabelSpec
 import kotlin.math.max
 
 /**
@@ -21,8 +23,11 @@ object Dither {
      * The dither is computed at one-cell scale and blown back up with no filtering, so a cell is a
      * solid block rather than a fine pattern the panel would average away to grey. That is the
      * whole trick: the halftone has to be coarser than the display, not finer.
+     *
+     * [filter] is applied to the grey value *before* the threshold, which is the only place it can
+     * usefully go — once a pixel is one of two colours there is nothing left to brighten.
      */
-    fun halftone(src: Bitmap, cell: Int = CELL): Bitmap {
+    fun halftone(src: Bitmap, cell: Int = CELL, filter: LabelFilter = LabelFilter.Normal): Bitmap {
         val c = cell.coerceIn(1, 32)
         val w = max(1, src.width / c)
         val h = max(1, src.height / c)
@@ -36,7 +41,7 @@ object Dither {
         for (y in 0 until h) {
             val row = y * w
             for (x in 0 until w) {
-                val g = gray(pixels[row + x])
+                val g = filter.apply(gray(pixels[row + x]))
                 val threshold = (BAYER_8[y and 7][x and 7] * 255 + 32) / 64
                 pixels[row + x] = if (g > threshold) WHITE else BLACK
             }
@@ -46,25 +51,34 @@ object Dither {
     }
 
     /**
-     * [src] scaled to cover [width] by [height] and cropped to the middle, then halftoned.
+     * [src] placed on a label [width] by [height], as [spec] says, then filtered and halftoned.
      *
-     * Cover rather than fit, because a label with letterboxing on it looks like a mistake, and
-     * centre-cropped because the subject of a photograph you would put on a cassette is in the
-     * middle of it far more often than not.
+     * Cover, not fit: a label with letterboxing on it looks like a mistake. Where within that cover
+     * the picture sits is [LabelSpec.photoX] and [LabelSpec.photoY], and how far into it you are is
+     * [LabelSpec.photoScale] — so this is the whole of "move the photograph around".
+     *
+     * The nudge is clamped to what the picture actually has to give: pushed to its limit an edge
+     * lands exactly on the edge of the label and no further, so it is never possible to shove a
+     * photograph off its own label and end up with a band of black.
      */
-    fun labelFrom(src: Bitmap, width: Int, height: Int): Bitmap {
-        val scale = max(width.toFloat() / src.width, height.toFloat() / src.height)
+    fun place(src: Bitmap, width: Int, height: Int, spec: LabelSpec): Bitmap {
+        val scale = max(width.toFloat() / src.width, height.toFloat() / src.height) * spec.photoScale
         val w = max(1, (src.width * scale).toInt())
         val h = max(1, (src.height * scale).toInt())
         val scaled = Bitmap.createScaledBitmap(src, w, h, true)
+        // What is left over in each direction is how far there is to move.
+        val slackX = (w - width).coerceAtLeast(0)
+        val slackY = (h - height).coerceAtLeast(0)
+        val left = (slackX / 2f + spec.photoX * slackX / 2f).toInt().coerceIn(0, slackX)
+        val top = (slackY / 2f + spec.photoY * slackY / 2f).toInt().coerceIn(0, slackY)
         val cropped = Bitmap.createBitmap(
             scaled,
-            ((w - width) / 2).coerceAtLeast(0),
-            ((h - height) / 2).coerceAtLeast(0),
+            left,
+            top,
             width.coerceAtMost(w),
             height.coerceAtMost(h),
         )
-        return halftone(cropped)
+        return halftone(cropped, filter = spec.filter)
     }
 
     /** Luminance, at the weights the eye actually uses. */
