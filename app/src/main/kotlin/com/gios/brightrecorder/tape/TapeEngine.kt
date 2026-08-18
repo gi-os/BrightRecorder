@@ -16,8 +16,10 @@ import kotlin.math.abs
  * There is no separate rewind routine, because at this level winding and playing are the same
  * operation at different speeds and signs.
  *
- * Which transport is running, and what winding returns to when it ends, is not decided here —
- * that is [WindLatch], driven by the keys and the wheel from the controller.
+ * Two things sit on top of that. Which transport is running, and what the wind keys return to
+ * when released, is [WindLatch]. What the *wheel* contributes is [Scrub], which overrides the
+ * rate for as long as the wheel is turning without touching the transport at all — so scrolling
+ * while playing leaves it playing.
  *
  * That is also why crossing from one clip into the next needs no code here. The position is a
  * number on a tape that [Timeline] has already made continuous, so the end of a clip is a
@@ -48,6 +50,25 @@ class TapeEngine(dir: File) {
 
     @Volatile
     var transport: Transport = Transport.Stopped
+        private set
+
+    /**
+     * The wheel's contribution, which *overrides* the transport while it is turning.
+     *
+     * An override rather than a mode, because the transport must survive being scrubbed over:
+     * scroll while playing and it is still playing, so when the wheel stops the tape carries on at
+     * 1x with nothing to resume. See [Scrub].
+     */
+    val scrub = Scrub()
+
+    /**
+     * The rate the last block actually ran at, for the readout.
+     *
+     * Published rather than recomputed by the UI because the wheel's rate lives in [scrub] and is
+     * smoothed per block — the only honest source for "how fast is the tape going" is the loop.
+     */
+    @Volatile
+    var lastRate: Float = 0f
         private set
 
     /**
@@ -119,6 +140,9 @@ class TapeEngine(dir: File) {
         transport = next
     }
 
+    private fun silentFor(mode: Transport, t: Timeline): Boolean =
+        mode == Transport.Recording || t.isEmpty
+
     // ------------------------------------------------------------------ thread
 
     fun start() {
@@ -186,10 +210,13 @@ class TapeEngine(dir: File) {
                 val reader = head!!
 
                 val mode = transport
-                val rate = mode.baseRate
+                // The wheel wins while it is turning; otherwise the transport's own speed.
+                val scrubRate = scrub.rate(System.nanoTime() / 1_000_000L)
+                val rate = if (scrubRate != 0f) scrubRate else mode.baseRate
+                lastRate = if (silentFor(mode, t)) 0f else rate
                 // Recording owns the audio device, so the loop idles rather than fighting it for
                 // the speaker — and playing the tape into the microphone would be a feedback loop.
-                val silent = mode == Transport.Recording || t.isEmpty
+                val silent = silentFor(mode, t)
                 // Ramped, not switched: cutting gain from 1 to 0 mid-waveform is a step, and a
                 // step is a click. Ten milliseconds is inaudible as a fade and enough to remove it.
                 val target = if (silent || abs(rate) < STILL) 0f else 1f

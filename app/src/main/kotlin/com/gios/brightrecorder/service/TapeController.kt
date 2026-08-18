@@ -265,9 +265,6 @@ object TapeController {
      */
     private val wind = WindLatch()
 
-    /** Ends a wheel wind once the notches stop arriving. See [windFromWheel]. */
-    private var wheelIdle: Job? = null
-
     /**
      * Press and hold a wind key. Release with [endWind].
      *
@@ -284,7 +281,6 @@ object TapeController {
 
     /** Let go of a wind key: back to whatever it interrupted. */
     fun endWind() {
-        wheelIdle?.cancel()
         if (!wind.isWinding) return
         val resume = wind.end()
         // Resuming into play at the very end of the tape would start and immediately stop, so
@@ -298,28 +294,26 @@ object TapeController {
     }
 
     /**
-     * One notch of the wheel: wind in that direction, and keep winding while the notches keep
-     * coming.
+     * One notch of the wheel.
      *
-     * Turning the wheel *is* holding a wind key — turn back to rewind, forward to fast-forward,
-     * stop turning to let go — so it arms a timer that ends the wind [WHEEL_IDLE_MS] after the
-     * last notch. The sensor fires every ~35 ms while it is moving, so that window is long enough
-     * to ride over the gaps in an unhurried turn and short enough that stopping feels like
-     * stopping.
+     * The wheel does **not** change the transport. It used to: a notch switched the machine into
+     * rewind and a timer switched it back out a third of a second after the last one, so any turn
+     * slower than that timer flipped the transport in and out on every notch — the rewind key
+     * blinking on and off, and playback stopping and restarting under it. Turning the wheel is not
+     * a mode change, it is a hand on the reel.
      *
-     * A direction change ends the current wind and starts the other one, which is what turning
-     * the wheel the other way should obviously do.
+     * So a notch only feeds [Scrub], which the engine reads as a rate override for as long as the
+     * wheel keeps moving. Scroll while playing and it stays playing; the head just moves faster,
+     * and slides back to 1x when the turning stops, with nothing to resume because nothing was
+     * interrupted. How fast comes from how quickly the notches arrive.
      */
-    fun windFromWheel(direction: Int) {
+    fun scrubFromWheel(direction: Int) {
         val e = engine ?: return
         if (_state.value.isRecording || e.tape.isEmpty) return
-        val to = if (direction < 0) Transport.Rewinding else Transport.FastForwarding
-        set(wind.begin(from = e.transport, wind = to))
-        wheelIdle?.cancel()
-        wheelIdle = scope.launch {
-            delay(WHEEL_IDLE_MS)
-            endWind()
-        }
+        e.scrub.notch(direction, System.nanoTime() / 1_000_000L)
+        e.start()
+        startService()
+        startTicking()
     }
 
     fun skipClip(count: Int) {
@@ -361,7 +355,7 @@ object TapeController {
         // Whatever the wind was going to resume into is meaningless now: this recording will be
         // filed when it stops, and an armed resume would start the tape playing on top of it.
         wind.cancel()
-        wheelIdle?.cancel()
+        e.scrub.still()
         e.setTransport(Transport.Recording)
         scope.launch { e.stop() }
 
@@ -485,7 +479,8 @@ object TapeController {
                 publish()
                 val s = _state.value
                 // Stop polling once everything has come to rest, including the wheel's coast.
-                val moving = s.isRecording || s.transport != Transport.Stopped
+                val moving = s.isRecording || s.transport != Transport.Stopped ||
+                    engine?.scrub?.isActive == true
                 if (!moving) break
                 delay(TICK_MS)
             }
@@ -507,7 +502,7 @@ object TapeController {
             transport = if (r?.isRecording == true) Transport.Recording else e?.transport ?: Transport.Stopped,
             position = e?.position?.toLong() ?: 0L,
             total = tape?.samples ?: 0L,
-            rate = e?.transport?.baseRate ?: 0f,
+            rate = e?.lastRate ?: 0f,
             recorded = r?.samples ?: 0L,
             level = r?.level ?: 0f,
             place = places?.current ?: Naming.NOWHERE,
@@ -544,12 +539,4 @@ object TapeController {
     /** Roughly 30 fps while moving. The reels and the counter both read from this. */
     private const val TICK_MS = 33L
 
-    /**
-     * How long after the last notch a wheel wind ends.
-     *
-     * The sensor fires every ~35 ms while the wheel is moving, so this has to ride over the gaps
-     * in an unhurried turn without making a deliberate stop feel sticky. 350 ms is about ten
-     * notches' worth of silence.
-     */
-    private const val WHEEL_IDLE_MS = 350L
 }
