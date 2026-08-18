@@ -29,7 +29,7 @@ class DeckTest {
         // not start moving again under the finger holding it.
         assertEquals(Transport.Stopped, deck.transport)
 
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -39,7 +39,7 @@ class DeckTest {
         deck.beginWind(back = true)
         deck.ranOff(atStart = true)
         assertEquals(Transport.Stopped, deck.transport)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
@@ -52,7 +52,7 @@ class DeckTest {
         deck.ranOff(atStart = true)
         deck.ranOff(atStart = true)
         assertTrue(deck.isWinding)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -75,7 +75,7 @@ class DeckTest {
         deck.play()
         deck.beginWind(back = false)
         assertEquals(Transport.FastForwarding, deck.transport)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -92,7 +92,7 @@ class DeckTest {
         val deck = Deck()
         deck.play()
         deck.beginWind(back = true)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
         // The audio thread catches up a moment later.
         deck.ranOff(atStart = true)
@@ -105,7 +105,7 @@ class DeckTest {
         deck.play()
         deck.beginWind(back = true)
         deck.ranOff(atStart = true)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -119,25 +119,43 @@ class DeckTest {
         assertEquals(Transport.Stopped, deck.transport)
     }
 
+    /**
+     * The reported fault, at the other end. Winding forward off the end parks the reels — and lets
+     * go into playing, because that is what the tape was doing when the key went down. It used to
+     * cancel the resume here, and a wind at 8x reaches an end almost every time it is used.
+     */
     @Test
-    fun `winding forward off the end stops and forgets the resume`() {
+    fun `winding forward off the end parks the reels and still goes back to playing`() {
         val deck = Deck()
         deck.play()
         deck.beginWind(back = false)
         deck.ranOff(atStart = false)
         assertEquals(Transport.Stopped, deck.transport)
-        deck.endWind(atEnd = true)
+        assertTrue("the key is still down, so the resume must survive", deck.isWinding)
+        deck.endWind()
+        assertEquals(Transport.Playing, deck.transport)
+    }
+
+    @Test
+    fun `winding off an end from stopped still ends up stopped`() {
+        val deck = Deck()
+        deck.beginWind(back = false)
+        deck.ranOff(atStart = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
-    /** Letting go at the very end would start and instantly stop again, which reads as a dead key. */
+    /**
+     * Even at the very end. The tape has run out, so playing from there stops again immediately —
+     * which is what a tape that has run out does, and is one fewer exception to be wrong about.
+     */
     @Test
-    fun `letting go of a wind at the very end does not resume into play`() {
+    fun `letting go of a wind at the very end still goes back to playing`() {
         val deck = Deck()
         deck.play()
         deck.beginWind(back = false)
-        deck.endWind(atEnd = true)
-        assertEquals(Transport.Stopped, deck.transport)
+        deck.endWind()
+        assertEquals(Transport.Playing, deck.transport)
     }
 
     // ---------------------------------------------------------------- ordinary winding
@@ -147,7 +165,7 @@ class DeckTest {
         val deck = Deck()
         deck.play()
         deck.beginWind(back = true)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -156,7 +174,7 @@ class DeckTest {
         val deck = Deck()
         deck.beginWind(back = false)
         assertEquals(Transport.FastForwarding, deck.transport)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
@@ -167,7 +185,7 @@ class DeckTest {
         deck.beginWind(back = true)
         deck.beginWind(back = false)
         assertEquals(Transport.FastForwarding, deck.transport)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Playing, deck.transport)
     }
 
@@ -176,9 +194,9 @@ class DeckTest {
         val deck = Deck()
         deck.play()
         deck.beginWind(back = true)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         deck.stop()
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
@@ -194,7 +212,7 @@ class DeckTest {
         assertFalse(deck.isWinding)
         deck.finishedRecording()
         assertEquals(Transport.Stopped, deck.transport)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
@@ -203,7 +221,7 @@ class DeckTest {
         val deck = Deck()
         deck.record()
         deck.beginWind(back = true)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertEquals(Transport.Stopped, deck.transport)
     }
 
@@ -214,7 +232,103 @@ class DeckTest {
         assertFalse(deck.isWinding)
         deck.beginWind(back = true)
         assertTrue(deck.isWinding)
-        deck.endWind(atEnd = false)
+        deck.endWind()
         assertFalse(deck.isWinding)
+    }
+}
+
+/** The gears a wind runs in, and what the machine says it is about to do. */
+class DeckSpeedTest {
+
+    @Test
+    fun `a wind starts at eight times`() {
+        val deck = Deck()
+        deck.beginWind(back = true)
+        assertEquals(8f, deck.windSpeed, 0.01f)
+    }
+
+    /** Tap the same key again and it steps up: 8, 16, 32. */
+    @Test
+    fun `tapping again steps up a gear`() {
+        val deck = Deck()
+        deck.beginWind(back = true)
+        deck.endWind()
+        deck.beginWind(back = true, step = true)
+        assertEquals(16f, deck.windSpeed, 0.01f)
+        deck.endWind()
+        deck.beginWind(back = true, step = true)
+        assertEquals(32f, deck.windSpeed, 0.01f)
+    }
+
+    @Test
+    fun `the top gear is the top`() {
+        val deck = Deck()
+        repeat(6) {
+            deck.beginWind(back = true, step = it > 0)
+            deck.endWind()
+        }
+        deck.beginWind(back = true, step = true)
+        assertEquals(32f, deck.windSpeed, 0.01f)
+    }
+
+    /** A press that is not a second tap starts again at the bottom. */
+    @Test
+    fun `a fresh press drops back to eight times`() {
+        val deck = Deck()
+        deck.beginWind(back = true)
+        deck.endWind()
+        deck.beginWind(back = true, step = true)
+        assertEquals(16f, deck.windSpeed, 0.01f)
+        deck.endWind()
+        deck.beginWind(back = true, step = false)
+        assertEquals(8f, deck.windSpeed, 0.01f)
+    }
+
+    /**
+     * Letting go does *not* put the gear back, and must not: stepping up is tap, tap, tap, so the
+     * gear has to survive the gap between two taps — and letting go is that gap. Resetting here is
+     * what stopped 32x from ever being reachable.
+     */
+    @Test
+    fun `letting go keeps the gear for the next tap`() {
+        val deck = Deck()
+        deck.beginWind(back = false)
+        deck.endWind()
+        deck.beginWind(back = false, step = true)
+        assertEquals(16f, deck.windSpeed, 0.01f)
+        deck.endWind()
+        assertEquals(16f, deck.windSpeed, 0.01f)
+    }
+
+    // ------------------------------------------------------ what it says it will do
+
+    @Test
+    fun `nothing is said when no key is held`() {
+        assertEquals("", Deck().resumeLabel)
+    }
+
+    @Test
+    fun `winding from play says it will play`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = true)
+        assertEquals("PLAY", deck.resumeLabel)
+    }
+
+    @Test
+    fun `winding from stopped says it will stop`() {
+        val deck = Deck()
+        deck.beginWind(back = true)
+        assertEquals("STOP", deck.resumeLabel)
+    }
+
+    /** Still PLAY after the reels have parked against an end, because letting go still plays. */
+    @Test
+    fun `it still says play after the tape has run out under the key`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = false)
+        deck.ranOff(atStart = false)
+        assertEquals("PLAY", deck.resumeLabel)
     }
 }

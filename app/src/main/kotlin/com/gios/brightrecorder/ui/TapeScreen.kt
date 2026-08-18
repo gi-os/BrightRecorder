@@ -89,6 +89,10 @@ private fun Header(state: TapeState) {
                 when {
                     state.isRecording -> "RECORDING"
                     state.isEmpty -> "BLANK TAPE"
+                    // While a wind key is held, say what letting go will do. Four releases of this
+                    // not working were four releases of having to guess, and the machine knows.
+                    state.resumeTo.isNotEmpty() ->
+                        "${speedLabel(state.rate)}  \u2192 ${state.resumeTo}"
                     else -> speedLabel(state.rate)
                 },
                 style = MaterialTheme.typography.labelSmall,

@@ -226,7 +226,11 @@ class TapeEngine(dir: File, private val deck: Deck) {
                 val mode = transport
                 // The wheel wins while it is turning; otherwise the transport's own speed.
                 val scrubRate = scrub.rate(System.nanoTime() / 1_000_000L)
-                val rate = if (scrubRate != 0f) scrubRate else mode.baseRate
+                // A wind's speed is a gear the user picks, so it comes from the deck rather than
+                // from the transport: the transport only says which way.
+                val transportRate =
+                    if (mode.isWinding) mode.baseRate * deck.windSpeed else mode.baseRate
+                val rate = if (scrubRate != 0f) scrubRate else transportRate
                 lastRate = if (silentFor(mode, t)) 0f else rate
                 // Recording owns the audio device, so the loop idles rather than fighting it for
                 // the speaker — and playing the tape into the microphone would be a feedback loop.

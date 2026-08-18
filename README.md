@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.10.12** (tag `v1.10.12`).
+**Current release: v1.11.13** (tag `v1.11.13`).
 
 ## Install by hand
 
@@ -163,12 +163,21 @@ of a wind is exactly when those two collide. Whichever wrote last won, and when 
 won the tape stopped and nothing afterwards corrected it. `TapeEngine.transport` is now a property
 that reads the deck, so there is no copy to go stale.
 
-**The front of the tape is a wall, not a stop.** The reels stop against it, because there is no
-more tape to wind, and that is all that happens — the key is still down and what it interrupted is
-still waiting, so letting go plays on from the beginning. Reaching it used to cancel the wind and
-its resume together, which sounds like an edge case and is not: a moment is a few seconds long and
-rewind runs at 4x, so a rewind started anywhere in a clip reaches the front almost every time. The
-other end genuinely is the end, so running off it stops and forgets the resume.
+**Both ends of the tape are walls, not stops.** The reels stop against one, because there is no
+more tape to wind, and that is all that happens — the key may still be down and what it interrupted
+is still waiting, so letting go goes back to it. This took four releases to get right, and every
+attempt failed the same way: it kept an exception. The front cancelled the resume, then the back
+did, then letting go at the very end refused to resume into play. Each looked reasonable alone, and
+each fired more often than the rule did — a wind runs at 8x and a moment is a few seconds long, so
+a wind reaches an end almost every time you use it. There is nothing left to play at the end of a
+tape and the tape stops on its own when it gets there; that never needed pre-empting.
+
+While a wind key is held the readout says where it is going — `<< 8.0x → PLAY` — because the machine
+knows and four releases of guessing was enough.
+
+**Winding runs at 8x, and steps.** Tap the same key again for 16x, again for 32x; a press that is
+not a second tap starts again at 8x. Past roughly 8x speech stops being something you can navigate
+by, which is why the higher gears are a deliberate second press rather than where the key starts.
 
 That asymmetry is why `Deck` exists. The transport used to be a field four threads wrote to — the
 keys from composition, the wheel from the input thread, the end of the tape from the audio thread,
@@ -439,6 +448,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.11.13 | Letting go of a wind key goes back to what the tape was doing, with no exceptions — the last two, both at the end of the tape, are gone. The readout says what letting go will do. Winding runs at 8x, stepping to 16x and 32x on a second tap, and the wheel holds 8.0x. |
 | v1.10.12 | The pen draws in grey — the halftone at half, in the same pattern the photographs use — and the preview and the saved label now go through one paint, so a pattern looks the same in both. |
 | v1.9.11 | The label in the editor is the label on the tape — one shape, derived in one place. Photographs move, zoom and grade; titles move, turn and size, in nine faces including cursive, comic and pixel; the pen draws in black as well as white. |
 | v1.8.10 | Labels: draw on one with a finger, put a photograph on it from the phone's roll (starred-only via Roll), and set the tape's title on it in one of five faces. The shelf draws every cassette with its own label, so you pick a tape by recognising it. |
