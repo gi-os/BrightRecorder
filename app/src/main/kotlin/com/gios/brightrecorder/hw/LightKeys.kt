@@ -46,10 +46,12 @@ enum class LightKey {
  * it in to start and stop is the one binding that needs no explaining.
  *
  * Caveat worth knowing before debugging a dead press: LightControl claims the wheel click
- * phone-wide and deliberately passes only bare *turns* through to apps. When it is installed and
- * has the click bound, that binding wins and this one never sees the event, because LightControl
- * is a foreground service with an accessibility grant and this is an ordinary activity. Nothing
- * here can or should fight that — the fix is to unbind the click in LightControl.
+ * phone-wide, and when it has the click bound that binding wins — it is a foreground service with
+ * an accessibility grant and this is an ordinary activity, so nothing here can or should fight it.
+ * That is why the press did nothing before LightControl 2.15. It knows this package by name now
+ * and stands off the whole wheel, turns and click alike, so no setting has to be changed by hand.
+ * On an older LightControl the press still goes to the torch, and the workaround is to set
+ * BrightRecorder to "Off" in its per-app list.
  *
  * `WHEEL_CCW`, `WHEEL_CW` and `WHEEL_CLICK` are not AOSP keycodes; Light added them, so
  * their integer values are Light's to change. Hence two ways in, in order:

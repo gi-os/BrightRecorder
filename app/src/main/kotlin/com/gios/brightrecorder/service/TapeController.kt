@@ -258,10 +258,13 @@ object TapeController {
     // --------------------------------------------------------------------- winding
 
     /**
-     * Winding, from a key or from the wheel.
+     * Winding, from the wind keys and from nothing else.
      *
-     * Both controls are the same gesture — hold to wind, let go to carry on — so both go through
-     * one [WindLatch] and cannot drift apart in what they resume to.
+     * The wheel used to share this latch, and that was the bug behind "rewinding while playing
+     * stops playing when you let go": the wheel armed the latch on a notch and its idle timer
+     * disarmed it a third of a second later, which could happen while a finger was still holding
+     * the rewind key. The wind ended early under the finger, and the release then found the latch
+     * already spent and did nothing. The wheel is out of it now — see [scrubFromWheel].
      */
     private val wind = WindLatch()
 

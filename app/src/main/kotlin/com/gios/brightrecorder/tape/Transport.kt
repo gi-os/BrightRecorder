@@ -46,10 +46,12 @@ enum class Transport {
  * before — playing if it was playing, sitting still if it was stopped. You never have to press
  * play again to get back to where you were.
  *
- * The wheel works the same way. Turning it back is holding rewind; turning it forward is holding
- * fast-forward; and stopping turning is letting go. That is why both go through this one class:
- * they are the same gesture arriving from two different controls, and the thing that must not
- * diverge between them is what happens when the gesture ends.
+ * The wheel does *not* come through here, and used to. Turning it looks like the same gesture —
+ * wind while you turn, carry on when you stop — but it is not one, because a turn has no release
+ * to wait for. The only thing that could end a wheel wind was a timer, and a timer that fires
+ * between two slow notches ends a wind the user is still making. Sharing this class with the keys
+ * meant it could also end a wind a *key* was still holding. The wheel contributes a rate instead,
+ * which interrupts nothing and so has nothing to resume; see [Scrub].
  *
  * Kept apart from the engine and free of Android so that "what does it return to" is a question
  * with a unit test rather than a question about a phone.
