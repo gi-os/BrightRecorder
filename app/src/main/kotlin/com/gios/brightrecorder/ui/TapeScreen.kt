@@ -51,11 +51,11 @@ import kotlin.math.sin
  */
 @Composable
 fun TapeScreen(state: TapeState, onNeedMicrophone: () -> Unit) {
-    // Turning the wheel is holding a wind key: back rewinds, forward fast-forwards, and the tape
-    // keeps winding until the notches stop arriving. How many notches are in a burst does not
-    // matter — the wind runs at one speed — so only the direction is passed on.
+    // Turning the wheel moves the tape for as long as you keep turning, at a speed that follows
+    // how fast you turn. It does not change the transport — scroll while playing and it is still
+    // playing — so the wind keys do not blink and playback does not stop and restart under it.
     WheelNotches(active = !state.isRecording) { notches ->
-        TapeController.windFromWheel(if (notches < 0) -1 else 1)
+        TapeController.scrubFromWheel(if (notches < 0) -1 else 1)
     }
 
     Column(Modifier.fillMaxSize()) {

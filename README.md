@@ -26,14 +26,14 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.3.4** (tag `v1.3.4`).
+**Current release: v1.4.5** (tag `v1.4.5`).
 
 ## Install by hand
 
 Grab the APK from the [latest release](../../releases/latest) and sideload it:
 
 ```bash
-adb install -r BrightRecorder-v1.3.<run>.apk
+adb install -r BrightRecorder-v1.4.<run>.apk
 ```
 
 Every push to `main` publishes a signed release, so `-r` upgrades in place.
@@ -102,24 +102,29 @@ The LPIII's brightness wheel is a `Pixart pat9126ja` optical sensor that emits o
 event per notch, roughly every 35 ms while it is turning. It reports notches, not
 position, and it says nothing about how fast it is being turned.
 
-**Turning the wheel is holding a wind key.** Turn it back and the tape rewinds; turn it
-forward and it fast-forwards; stop turning and it lets go. It keeps winding as long as the
-notches keep arriving, and ends 350 ms after the last one — long enough to ride over the
-gaps in an unhurried turn, short enough that stopping feels like stopping.
+**Turning the wheel moves the tape, at the speed you turn it.** Back to go back, forward to
+go forward, and it keeps going for as long as you keep turning. Each notch is worth a fixed
+length of tape, so turning twice as fast covers twice as much ground: a hard spin reaches
+about 8x, an unhurried turn sits near 1.2x.
 
-That replaced a flywheel, which was the wrong idea. The first version inferred a *speed*
-from how thickly the notches arrived, so the tape had mass and coasted; it was pleasant in
-the abstract and wrong in the hand, because the thing you want from a wheel on a tape
-machine is to wind until you get there, not to nudge a speed and wait for it to decay.
+Crucially the wheel does **not** change the transport. It contributes a rate that overrides
+the tape speed while it is turning, and nothing else — so scrolling while playing leaves it
+playing, and the wind keys never light up. An earlier version did switch the transport into
+rewind and back out on a timeout, and any turn slower than that timeout flipped it in and out
+on every notch: the keys blinked and playback stuttered. Scrolling is a hand on the reel, not
+a mode change.
+
+`Scrub` is that rate, and it has no Android in it, so the feel of the wheel is unit-tested —
+including the specific fault above: a slow steady turn must never drop the tape to a
+standstill between notches.
 
 **Pressing the wheel in plays and stops.** The wheel is already the transport, so that is the
 one binding that needs no explaining.
 
-> **LightControl owns the wheel by default, and will swallow both of these.** Bare turns
-> become brightness (`unknownAppTurn` defaults to `BRIGHTNESS`), and the click is bound to the
-> torch — and anything that is not `PassThrough` consumes the key, so neither reaches this app.
-> The fix is one setting: give BrightRecorder the **Off / hands-off** app rule in LightControl,
-> which passes every key through untouched. See "Winding and the wheel" below.
+> **LightControl arbitrates the wheel phone-wide.** Its defaults bind the click to the torch and
+> turn bare notches into brightness, and anything that is not `PassThrough` consumes the key — so
+> without it agreeing, neither gesture reaches any app. LightControl now treats this app as one
+> that owns the whole wheel; see "Getting the wheel past LightControl" below.
 
 The press is a `gpio-keys` button rather than the optical sensor, so scancode trust is per
 code rather than per device: 66 is only honoured from the board's buttons and 19 and 20 only
@@ -128,18 +133,23 @@ winds the tape.
 
 ## Winding, and getting the wheel past LightControl
 
-Rewind and fast-forward are **momentary**, from either control. Hold the key — or keep turning
-the wheel — and the tape winds; let go and it carries straight on with whatever it was doing
-before. Wind out of the middle of a clip while playing, let go, and it keeps playing from where
-you landed. You never press play again, which is the entire point and the thing a latching
-button cannot do.
+
+Rewind and fast-forward are **momentary**. Hold the key and the tape winds; let go and it carries
+straight on with whatever it was doing before. Wind out of the middle of a clip while playing, let
+go, and it keeps playing from where you landed. You never press play again, which is the entire
+point and the thing a latching button cannot do.
 
 `WindLatch` is what remembers the interrupted state, and it is deliberately free of Android so
 that "what does it go back to" has a unit test. It never resumes into another wind, and never
 into a recording — a recording is filed the moment it stops, so there is nothing to go back to.
 
-**If the wheel does nothing in this app, it is LightControl, not this app.** Its defaults claim
-both gestures phone-wide:
+**Only the keys use it.** The wheel does not, and that separation was learned the hard way: while
+they shared one latch, the wheel's idle timer could end a wind a *key* was still holding, so
+rewind quit early, playback resumed under your finger, and letting go then did nothing because
+the latch was already spent.
+
+**If the wheel does nothing in this app, look at LightControl first.** Its defaults claim both
+gestures phone-wide:
 
 | Gesture | LightControl default | Effect here |
 |---|---|---|
@@ -150,11 +160,11 @@ both gestures phone-wide:
 `ScrollThrough` — but that still yields `Brightness` while the turn mode is set to brightness,
 and `ScrollThrough` keeps the click for LightControl either way.
 
-The setting that fixes both at once is the per-app rule **Off** ("hands off — every key goes to
-the app untouched", which is what Light's own tools get). That returns
-`Behaviour(bareTurn = PassThrough, buttonsActive = false)`, so turns and the click both arrive
-here. Setting the global turn mode to `PASS THROUGH` fixes the turns alone but leaves the click
-on the torch.
+LightControl now resolves `com.gios.brightrecorder` to its hands-off rule by default, through a
+list of apps that own the whole wheel rather than only its turns — so both gestures arrive here
+with no setting to find. The per-app rule **Off** does the same thing by hand for anything else,
+and setting the global turn mode to `PASS THROUGH` fixes turns alone while leaving the click on
+the torch.
 
 ## Winding sounds like winding
 
@@ -294,6 +304,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.4.5 | The wheel scrubs at a speed that follows how fast you turn, instead of switching the transport in and out and blinking the wind keys. |
 | v1.3.4 | A shelf of tapes: name them, mark them with a pattern, swipe through them, load the one you want to record onto. Everything already recorded moves onto the first tape. |
 | v1.2.3 | Winding is momentary from both the keys and the wheel, and hands the tape back to what it was doing. Clip titles are places, never coordinates. |
 | v1.1.2 | Makeup gain and a limiter on the record path, so recordings are loud. Location actually gets collected — the permission result was being ignored. Pressing the wheel in plays and stops. |
