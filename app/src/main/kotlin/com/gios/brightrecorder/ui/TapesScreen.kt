@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gios.brightrecorder.hw.WheelNotches
+import com.gios.brightrecorder.label.Label
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.service.TapeState
 import com.gios.brightrecorder.tape.Naming
@@ -50,6 +52,10 @@ import com.gios.brightrecorder.ui.theme.Faint
  *
  * Swiping only *looks* at a tape. Loading one onto the machine is a deliberate press, so that
  * browsing the shelf while something is playing does not keep stopping the tape.
+ *
+ * Each cassette carries whatever is on its label — a photograph, something written on it with a
+ * finger, or the [com.gios.brightrecorder.tape.Pattern] when neither. That is the point of the
+ * screen: a shelf you pick from by recognising a tape, not by reading a list of names.
  */
 @Composable
 fun TapesScreen(state: TapeState) {
@@ -66,6 +72,7 @@ fun TapesScreen(state: TapeState) {
     val pager = rememberPagerState(initialPage = loadedIndex) { tapes.size }
     var renaming by remember { mutableStateOf<Tape?>(null) }
     var naming by remember { mutableStateOf(false) }
+    var labelling by remember { mutableStateOf<Tape?>(null) }
 
     // Follow the machine when the tape changes underneath us — loading, creating or deleting one
     // all move which tape is on, and the shelf should be looking at it.
@@ -80,7 +87,7 @@ fun TapesScreen(state: TapeState) {
     // The notch cannot scroll the pager itself: the handler is not a coroutine and animating is a
     // suspend call. So it records where to go and the effect below does the moving.
     var wheelTarget by remember { mutableStateOf<Int?>(null) }
-    WheelNotches(active = renaming == null && !naming) { notches ->
+    WheelNotches(active = renaming == null && !naming && labelling == null) { notches ->
         wheelTarget = (pager.currentPage + if (notches < 0) -1 else 1).coerceIn(0, tapes.size - 1)
     }
     LaunchedEffect(wheelTarget) {
@@ -102,8 +109,16 @@ fun TapesScreen(state: TapeState) {
             pageSpacing = 12.dp,
         ) { page ->
             val tape = tapes[page]
+            val dir = remember(tape.dirName) { TapeController.dirOf(tape) }
+            // Keyed on the label revision as well as the folder, so a label edited on the screen
+            // below is redrawn here rather than served from the decode cache.
+            val art by produceState(Label.Art(), dir, state.labelRevision) {
+                value = dir?.let { Label.art(it) } ?: Label.Art()
+            }
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Cassette(
+                    art = art,
+                    title = tape.name,
                     pattern = tape.pattern,
                     // How full it looks is how much is on it, against the longest tape on the
                     // shelf — a relative reading, because there is no such thing as a full tape.
@@ -159,15 +174,18 @@ fun TapesScreen(state: TapeState) {
                 modifier = Modifier.weight(1f),
             ) { TapeController.openTape(shown) }
             TransportKey(glyph = "NAME", modifier = Modifier.weight(1f)) { renaming = shown }
-            TransportKey(glyph = "MARK", modifier = Modifier.weight(1f)) {
-                TapeController.cyclePattern(shown)
-            }
+            TransportKey(glyph = "LABEL", modifier = Modifier.weight(1f)) { labelling = shown }
             TransportKey(
                 glyph = "NEW",
                 enabled = !state.isRecording,
                 modifier = Modifier.weight(1f),
             ) { naming = true }
         }
+    }
+
+    labelling?.let { tape ->
+        LabelScreen(tape = tape, onClose = { labelling = null })
+        return
     }
 
     renaming?.let { tape ->
@@ -180,6 +198,7 @@ fun TapesScreen(state: TapeState) {
                 renaming = null
             },
             onCancel = { renaming = null },
+            onCyclePattern = { TapeController.cyclePattern(tape) },
             onDone = { name ->
                 TapeController.renameTape(tape, name)
                 renaming = null
@@ -194,6 +213,7 @@ fun TapesScreen(state: TapeState) {
             canDelete = false,
             onDelete = {},
             onCancel = { naming = false },
+            onCyclePattern = null,
             onDone = { name ->
                 TapeController.newTape(name)
                 naming = false
@@ -218,6 +238,7 @@ private fun NameSheet(
     canDelete: Boolean,
     onDelete: () -> Unit,
     onCancel: () -> Unit,
+    onCyclePattern: (() -> Unit)? = null,
     onDone: (String) -> Unit,
 ) {
     var text by remember { mutableStateOf(initial) }
@@ -258,6 +279,12 @@ private fun NameSheet(
         Spacer(Modifier.height(22.dp))
         Row(Modifier.fillMaxWidth()) {
             TransportKey(glyph = "BACK", modifier = Modifier.weight(1f), onClick = onCancel)
+            // The pattern moved off the shelf when the label took its key. It belongs here anyway:
+            // a mark is the fallback for a tape nobody has labelled, and this is where you are when
+            // you are deciding what a tape is.
+            if (onCyclePattern != null) {
+                TransportKey(glyph = "MARK", modifier = Modifier.weight(1f), onClick = onCyclePattern)
+            }
             if (canDelete) {
                 TransportKey(glyph = "DELETE", modifier = Modifier.weight(1f), onClick = onDelete)
             }

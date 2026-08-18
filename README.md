@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.7.9** (tag `v1.7.9`).
+**Current release: v1.8.10** (tag `v1.8.10`).
 
 ## Install by hand
 
@@ -309,6 +309,38 @@ without noticing. Measuring is a pass over the audio, so it happens in the backg
 time rather than on the launch path — the tape plays throughout, and each clip reaches its proper
 level as its own measurement lands.
 
+## Labels
+
+A cassette you have to play to identify is the problem the shelf exists to solve, so a tape carries
+a label you write on yourself.
+
+**A finger draws on it.** Strokes are kept as strokes rather than as bitmaps, which makes undo one
+step instead of a megabyte of history per mark; they are flattened into the label only on save. The
+rub-out really removes what it passes over rather than painting black over it — it has to, because
+the drawing sits above the photograph and black ink would blot the photograph out instead of
+revealing it.
+
+**A photograph goes behind it.** The picker reads DCIM and Pictures directly rather than MediaStore,
+for the reason BrightChat found first: nothing on LightOS keeps MediaStore current, so a picture
+taken minutes ago is not in it. **STARRED** narrows the grid to what you starred in Roll, read from
+its own read-only provider — a star is the one fact about a photograph that lives nowhere else,
+since `IS_FAVORITE` is writable in practice only by the system gallery. The key appears only when
+Roll is installed and answers.
+
+The picture is halftoned to the two colours the panel has once, at pick time, with an ordered Bayer
+dither. Letting the display do that conversion gives a grey smear; doing it deliberately gives
+something that looks printed.
+
+**The title goes on top**, in one of five faces — plain, serif, typed, spaced, heavy. Five and not
+fifty because at this size the difference between two similar grotesques is invisible while the
+difference between those five is the whole character of a label. It is stored as a choice rather
+than burned in, so renaming the tape moves the label with it and changing the face rubs nothing out.
+
+It all lives in the tape's own folder: `label-photo.png`, `label-drawing.png`, `label-title.txt`.
+Same rule as the recordings — a tape is a directory and there is no index to disagree with it. Each
+image is written to a temporary name and renamed into place, so a process killed mid-save leaves the
+label you had rather than half of a new one.
+
 ## Why uncompressed
 
 22050 Hz, 16-bit, mono WAV. Every part of that is chosen for scrubbing rather than for
@@ -389,6 +421,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.8.10 | Labels: draw on one with a finger, put a photograph on it from the phone's roll (starred-only via Roll), and set the tape's title on it in one of five faces. The shelf draws every cassette with its own label, so you pick a tape by recognising it. |
 | v1.7.9 | Letting go of rewind or fast-forward carries on playing. The engine reads the transport from the deck instead of keeping a copy the audio thread could clobber, and the wind keys issue their release from a `finally` so it cannot be lost. |
 | v1.6.8 | Every clip is measured for loudness and played back at the same level, about as loud as music on a streaming service — new recordings and everything already on the tape, with nothing rewritten. |
 | v1.5.7 | Hold the wheel to record. Rewinding to the front of the tape and letting go carries on playing — the transport rules moved into `Deck`, away from Android, with a test each. A clip is never filed under "Somewhere": the fix is kept warm, a stale one beats none, the time zone is the floor, and a clip named by a guess is renamed when the real name lands. |

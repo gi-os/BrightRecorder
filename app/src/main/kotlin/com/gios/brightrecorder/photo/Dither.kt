@@ -1,0 +1,96 @@
+package com.gios.brightrecorder.photo
+
+import android.graphics.Bitmap
+import kotlin.math.max
+
+/**
+ * A photograph reduced to the two colours this phone has.
+ *
+ * The LPIII panel is monochrome, so a photograph put on a tape label has to become black and white
+ * one way or another — and letting the panel do it produces a smeared grey mush. An ordered Bayer
+ * dither instead gives a halftone: a deliberate, printed look that reads as a photograph on a
+ * cassette label rather than as a picture that has gone wrong.
+ *
+ * Ported from BrightChat, where the matrix and the cell arithmetic were already earned.
+ */
+object Dither {
+
+    /**
+     * [src] as pure black and white, in halftone cells [cell] pixels across.
+     *
+     * The dither is computed at one-cell scale and blown back up with no filtering, so a cell is a
+     * solid block rather than a fine pattern the panel would average away to grey. That is the
+     * whole trick: the halftone has to be coarser than the display, not finer.
+     */
+    fun halftone(src: Bitmap, cell: Int = CELL): Bitmap {
+        val c = cell.coerceIn(1, 32)
+        val w = max(1, src.width / c)
+        val h = max(1, src.height / c)
+        val small = if (c == 1) {
+            src.copy(Bitmap.Config.ARGB_8888, true)
+        } else {
+            Bitmap.createScaledBitmap(src, w, h, true)
+        }
+        val pixels = IntArray(w * h)
+        small.getPixels(pixels, 0, w, 0, 0, w, h)
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                val g = gray(pixels[row + x])
+                val threshold = (BAYER_8[y and 7][x and 7] * 255 + 32) / 64
+                pixels[row + x] = if (g > threshold) WHITE else BLACK
+            }
+        }
+        small.setPixels(pixels, 0, w, 0, 0, w, h)
+        return if (c == 1) small else Bitmap.createScaledBitmap(small, src.width, src.height, false)
+    }
+
+    /**
+     * [src] scaled to cover [width] by [height] and cropped to the middle, then halftoned.
+     *
+     * Cover rather than fit, because a label with letterboxing on it looks like a mistake, and
+     * centre-cropped because the subject of a photograph you would put on a cassette is in the
+     * middle of it far more often than not.
+     */
+    fun labelFrom(src: Bitmap, width: Int, height: Int): Bitmap {
+        val scale = max(width.toFloat() / src.width, height.toFloat() / src.height)
+        val w = max(1, (src.width * scale).toInt())
+        val h = max(1, (src.height * scale).toInt())
+        val scaled = Bitmap.createScaledBitmap(src, w, h, true)
+        val cropped = Bitmap.createBitmap(
+            scaled,
+            ((w - width) / 2).coerceAtLeast(0),
+            ((h - height) / 2).coerceAtLeast(0),
+            width.coerceAtMost(w),
+            height.coerceAtMost(h),
+        )
+        return halftone(cropped)
+    }
+
+    /** Luminance, at the weights the eye actually uses. */
+    private fun gray(pixel: Int): Int =
+        ((pixel shr 16 and 0xFF) * 299 + (pixel shr 8 and 0xFF) * 587 + (pixel and 0xFF) * 114) / 1000
+
+    private const val WHITE = 0xFFFFFFFF.toInt()
+    private const val BLACK = 0xFF000000.toInt()
+
+    /**
+     * Halftone cell size in pixels.
+     *
+     * Three is the smallest that still reads as a halftone on this panel rather than as noise, and
+     * a label is small enough that anything coarser loses the subject.
+     */
+    private const val CELL = 3
+
+    /** The standard 8×8 Bayer matrix, values 0..63. */
+    private val BAYER_8 = arrayOf(
+        intArrayOf(0, 32, 8, 40, 2, 34, 10, 42),
+        intArrayOf(48, 16, 56, 24, 50, 18, 58, 26),
+        intArrayOf(12, 44, 4, 36, 14, 46, 6, 38),
+        intArrayOf(60, 28, 52, 20, 62, 30, 54, 22),
+        intArrayOf(3, 35, 11, 43, 1, 33, 9, 41),
+        intArrayOf(51, 19, 59, 27, 49, 17, 57, 25),
+        intArrayOf(15, 47, 7, 39, 13, 45, 5, 37),
+        intArrayOf(63, 31, 55, 23, 61, 29, 53, 21),
+    )
+}

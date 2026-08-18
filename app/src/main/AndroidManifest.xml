@@ -29,6 +29,23 @@
     -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!--
+      Putting a photograph on a tape label. Stills only: a label can never hold a clip, and asking
+      for the video grant to choose a picture would be asking for someone's whole video library to
+      decorate a cassette.
+    -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+
+    <!--
+      Roll's read-only list of the photographs you starred, so the picker can offer them on their
+      own. Package visibility on API 30+ is opt-in, and without this the query silently returns
+      nothing and the filter never appears. Named rather than a broad provider query, so this can
+      see Roll and nothing else.
+    -->
+    <queries>
+        <package android:name="com.gios.lightcamera" />
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

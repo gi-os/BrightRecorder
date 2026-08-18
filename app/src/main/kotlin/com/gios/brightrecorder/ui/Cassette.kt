@@ -7,10 +7,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import com.gios.brightrecorder.label.Label
+import com.gios.brightrecorder.label.LabelTitle
 import com.gios.brightrecorder.tape.Pattern
 import com.gios.brightrecorder.ui.theme.Faint
 import com.gios.brightrecorder.ui.theme.RuleGrey
@@ -26,6 +33,12 @@ import com.gios.brightrecorder.ui.theme.RuleGrey
  *
  * The reels fill the way the real ones do — the left one empties as the right one fills — so a
  * tape that has a lot on it looks different from a fresh one before you have read a word of it.
+ *
+ * [art] is what has been written on the label: a photograph, something drawn on with a finger, or
+ * both. When there is any, it replaces the [Pattern] — the pattern exists to tell tapes apart when
+ * nothing else does, and a photograph does that job far better. It is drawn *fitted* inside the
+ * label rather than cropped to it, so nothing anybody wrote goes off the edge; the letterboxing is
+ * invisible on a black panel.
  */
 @Composable
 fun Cassette(
@@ -33,6 +46,8 @@ fun Cassette(
     fill: Float,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    art: Label.Art = Label.Art(),
+    title: String = "",
 ) {
     val edge = if (selected) Color.White else Faint
     Canvas(modifier) {
@@ -63,7 +78,26 @@ fun Cassette(
             style = Stroke(width = 1.5f),
         )
         clipRect(label.left, label.top, label.right, label.bottom) {
-            paint(pattern, label, if (selected) Color.White else Faint)
+            if (art.isEmpty) {
+                paint(pattern, label, if (selected) Color.White else Faint)
+            } else {
+                art.photo?.let { fitImage(it, label) }
+                art.drawing?.let { fitImage(it, label) }
+                if (art.title.shown && title.isNotBlank()) {
+                    drawIntoCanvas { canvas ->
+                        canvas.nativeCanvas.save()
+                        canvas.nativeCanvas.translate(label.left, label.top)
+                        LabelTitle.draw(
+                            canvas.nativeCanvas,
+                            title,
+                            art.title.font,
+                            label.width.toInt(),
+                            label.height.toInt(),
+                        )
+                        canvas.nativeCanvas.restore()
+                    }
+                }
+            }
         }
 
         // The two windows, with the tape packs behind them.
@@ -226,4 +260,26 @@ private fun DrawScope.paint(pattern: Pattern, area: Rect, ink: Color) {
             }
         }
     }
+}
+
+/**
+ * Draw [image] as large as it will go inside [into] without cropping or distorting it.
+ *
+ * Fitted rather than cropped because the label is small and somebody's handwriting runs to its
+ * edges — losing the last word of it to a crop would be worse than a band of black above and below,
+ * which on this panel cannot be seen at all.
+ */
+private fun DrawScope.fitImage(image: ImageBitmap, into: Rect) {
+    if (image.width <= 0 || image.height <= 0) return
+    val scale = minOf(into.width / image.width, into.height / image.height)
+    val w = image.width * scale
+    val h = image.height * scale
+    drawImage(
+        image = image,
+        dstOffset = IntOffset(
+            (into.left + (into.width - w) / 2f).toInt(),
+            (into.top + (into.height - h) / 2f).toInt(),
+        ),
+        dstSize = IntSize(w.toInt(), h.toInt()),
+    )
 }
