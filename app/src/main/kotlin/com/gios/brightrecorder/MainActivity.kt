@@ -25,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import com.gios.brightrecorder.hw.LightKey
 import com.gios.brightrecorder.hw.LightKeys
 import com.gios.brightrecorder.hw.LocalWheelBus
+import com.gios.brightrecorder.hw.Press
 import com.gios.brightrecorder.hw.WheelBus
 import com.gios.brightrecorder.report.CrashLog
 import com.gios.brightrecorder.report.ReportContext
@@ -39,19 +41,29 @@ import com.gios.brightrecorder.ui.TabBar
 import com.gios.brightrecorder.ui.TapeScreen
 import com.gios.brightrecorder.ui.TapesScreen
 import com.gios.brightrecorder.ui.theme.BrightRecorderTheme
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
     /** Wheel notches on their way to whichever screen is up. */
     private val wheel = WheelBus()
 
+    /** What a press of the wheel means: a tap plays, a hold records. See [Press]. */
+    private val press = Press()
+
+    /** The hold timer. Cancelled by the release, so a tap never reaches [Press.held]. */
+    private var holding: Job? = null
+
     /**
      * Every hardware key arrives here first — `DecorView` hands the event to the window callback
      * before it walks the view hierarchy — so a notch reaches the screen that is showing whatever
      * happens to hold focus.
      *
-     * Only the turns. The wheel click and the camera button belong to LightControl, which owns
-     * them phone-wide and passes bare turns through on purpose.
+     * The turns and the press. The camera button belongs to LightControl, which owns it
+     * phone-wide; from 2.15 it knows this package by name and stands off the whole wheel, which is
+     * what lets the press arrive here at all.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         when (LightKeys.of(event)) {
@@ -63,18 +75,64 @@ class MainActivity : ComponentActivity() {
                 if (event.action == KeyEvent.ACTION_DOWN) wheel.send(-1)
                 return true
             }
-            // Press the wheel in to start and stop the tape. On the way down, so it answers
-            // under the thumb, and only on the first event of a press: a held button
-            // auto-repeats, and without the guard that would toggle play a dozen times.
+            // The wheel is the only control you can work without looking at the screen, so it
+            // carries both of the things you do without looking: tap to play or stop, hold to
+            // record. What each means is [Press]; this only supplies it with events and a timer.
+            //
+            // `repeatCount == 0` because a held key auto-repeats, and every repeat is another
+            // ACTION_DOWN. The repeats are also why the hold is timed here rather than taken from
+            // the first repeat: the repeat delay belongs to the system and is not ours to set.
             LightKey.WheelClick -> {
-                if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    TapeController.toggle()
+                when {
+                    event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0 -> {
+                        act(press.down(recording = TapeController.state.value.isRecording))
+                        holding?.cancel()
+                        holding = lifecycleScope.launch {
+                            delay(Press.HOLD_MS)
+                            act(press.held())
+                        }
+                    }
+                    event.action == KeyEvent.ACTION_UP -> {
+                        holding?.cancel()
+                        act(press.up())
+                    }
                 }
                 return true
             }
             else -> Unit
         }
         return super.dispatchKeyEvent(event)
+    }
+
+    /** Carry out what the press meant. */
+    private fun act(what: Press.Act) = when (what) {
+        Press.Act.None -> Unit
+        Press.Act.Toggle -> TapeController.toggle()
+        // Through the same door as the record button, because recording needs the microphone and
+        // this is very often the first time anything has asked for it.
+        Press.Act.StartRecording -> startRecording()
+        Press.Act.StopRecording -> {
+            TapeController.finishRecording()
+            Unit
+        }
+    }
+
+    /**
+     * The app went away with the wheel still held, so the press will never be released.
+     *
+     * Without this the hold timer would fire behind whatever came over the top and start a
+     * recording nobody asked for, and the stale press would swallow the next release as well.
+     */
+    override fun onPause() {
+        super.onPause()
+        holding?.cancel()
+        press.cancel()
+    }
+
+    /** Start looking for a place name now rather than when record is pressed. See [TapeController.warmPlace]. */
+    override fun onResume() {
+        super.onResume()
+        TapeController.warmPlace()
     }
 
     /**

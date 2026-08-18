@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.4.5** (tag `v1.4.5`).
+**Current release: v1.5.7** (tag `v1.5.7`).
 
 ## Install by hand
 
@@ -118,8 +118,15 @@ a mode change.
 including the specific fault above: a slow steady turn must never drop the tape to a
 standstill between notches.
 
-**Pressing the wheel in plays and stops.** The wheel is already the transport, so that is the
-one binding that needs no explaining.
+**Tap the wheel to play or stop; hold it to record.** The wheel is the only control on this
+phone you can work without looking at it, so it carries both of the things you do without
+looking. Four-tenths of a second is the line between a tap and a hold — long enough that
+pressing play never records by accident, short enough to answer while your thumb is still
+deciding. Pressing it again stops the recording, on the way *down* rather than on the release,
+because stopping a recording should happen the instant you ask for it.
+
+`Press` is that decision, and it has no clock of its own: the caller supplies the events and the
+timer, so every branch of it is unit-tested.
 
 > **LightControl arbitrates the wheel phone-wide.** Its defaults bind the click to the torch and
 > turn bare notches into brightness, and anything that is not `PassThrough` consumes the key — so
@@ -139,14 +146,27 @@ straight on with whatever it was doing before. Wind out of the middle of a clip 
 go, and it keeps playing from where you landed. You never press play again, which is the entire
 point and the thing a latching button cannot do.
 
-`WindLatch` is what remembers the interrupted state, and it is deliberately free of Android so
-that "what does it go back to" has a unit test. It never resumes into another wind, and never
-into a recording — a recording is filed the moment it stops, so there is nothing to go back to.
+`WindLatch` is what remembers the interrupted state, and `Deck` is every rule about when it
+applies. Both are deliberately free of Android so that "what does the tape do next" has a unit
+test rather than a phone. A wind never resumes into another wind, and never into a recording — a
+recording is filed the moment it stops, so there is nothing to go back to.
 
-**Only the keys use it.** The wheel does not, and that separation was learned the hard way: while
-they shared one latch, the wheel's idle timer could end a wind a *key* was still holding, so
+**Only the keys use the latch.** The wheel does not, and that separation was learned the hard way:
+while they shared one, the wheel's idle timer could end a wind a *key* was still holding, so
 rewind quit early, playback resumed under your finger, and letting go then did nothing because
 the latch was already spent.
+
+**The front of the tape is a wall, not a stop.** The reels stop against it, because there is no
+more tape to wind, and that is all that happens — the key is still down and what it interrupted is
+still waiting, so letting go plays on from the beginning. Reaching it used to cancel the wind and
+its resume together, which sounds like an edge case and is not: a moment is a few seconds long and
+rewind runs at 4x, so a rewind started anywhere in a clip reaches the front almost every time. The
+other end genuinely is the end, so running off it stops and forgets the resume.
+
+That asymmetry is why `Deck` exists. The transport used to be a field four threads wrote to — the
+keys from composition, the wheel from the input thread, the end of the tape from the audio thread,
+the recorder from a coroutine — with the latch beside it and nothing holding the two together, and
+three releases running tried to fix the same reported fault by guessing at an interleaving.
 
 **If the wheel does nothing in this app, look at LightControl first.** Its defaults claim both
 gestures phone-wide:
@@ -204,20 +224,39 @@ There is no database and no index file. The tape is whatever is in the directory
 everything about a clip except its length is recovered from its filename — so copying the
 tape off the phone and back loses nothing.
 
-The location lookup runs **during** the recording, never before it. Pressing record starts
-the microphone in the same frame; a fix takes anywhere from a second to never, and indoors
-it is usually never. Whatever has been found by the time you stop is what the clip is
-called. Coarse location only — the title says which part of town, not where you stood.
-
 The name is always **somewhere, city** — `Café de Flore, Paris`, `Rue de Lappe, Paris`,
 `Kreuzberg, Berlin` — because that is how a person says where they were. The most specific
-named thing the geocoder found wins, then the street, then the neighbourhood. Never a house
-number, never a postcode, never the country.
+named thing the geocoder found wins, then the street, then the neighbourhood, then the city,
+and past that the state and the country. Never a house number, never a postcode.
 
 **Never coordinates.** They used to be the fallback when the geocoder could not answer, and
 they are worse than nothing: a list of clips titled `48.8570, 2.3700` tells you where you
-were only if you go and look it up, which is the work this app exists to save. A clip nobody
-could name is filed under `Somewhere`, which at least reads as a place you have been.
+were only if you go and look it up, which is the work this app exists to save.
+
+**And never `Somewhere`**, which is worse still — a tape of fourteen clips all called
+`Somewhere` is the filing system failing at the only job it has. The cause was timing rather
+than the lookup. Recording starts the microphone in the same frame you press it, a fix takes
+anywhere from a second to never, and a moment is four seconds long — so the clip was filed
+before the answer arrived, every time. Four things fix that, and it takes all four:
+
+- **The fix is kept warm.** The lookup runs when the app comes to the front, not when you press
+  record, so there is usually already an answer. Repeating it is free: one less than five
+  minutes old is where you are now, and looking again returns immediately.
+- **The place is not forgotten between recordings.** The phone has not moved since you pressed
+  stop.
+- **A stale position beats none.** A cached fix from an hour ago is the wrong street and the
+  right city, and the city is what goes in the title. Indoors, with nothing else on the phone
+  asking for a position, it is the only thing that ever answers.
+- **There is a floor.** The phone's time zone names a city, the mobile network names a country,
+  and the locale names one behind that — none needing a permission, a network request or a
+  position. `Europe/Paris` is a better guess for where you were than nothing is. The network's
+  country outranks the locale's, because it is where the phone *is* rather than where it is
+  configured to think it is.
+
+A clip filed under one of those guesses **gets its real name later**. The lookup keeps going for
+a minute and a half after you stop, and when it lands the clip is renamed. There is no index to
+update — the tape *is* the directory — so the rename is the whole of it, which is what filing by
+filename was for. A `Place` carries how well it is known so the two can be told apart.
 
 One limit worth knowing: Android's `Geocoder` is a reverse geocoder, not a places search, so
 it names what is *at* the fix rather than what is interesting nearby. A café comes back when
@@ -304,6 +343,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.5.7 | Hold the wheel to record. Rewinding to the front of the tape and letting go carries on playing — the transport rules moved into `Deck`, away from Android, with a test each. A clip is never filed under "Somewhere": the fix is kept warm, a stale one beats none, the time zone is the floor, and a clip named by a guess is renamed when the real name lands. |
 | v1.4.5 | The wheel scrubs at a speed that follows how fast you turn, instead of switching the transport in and out and blinking the wind keys. |
 | v1.3.4 | A shelf of tapes: name them, mark them with a pattern, swipe through them, load the one you want to record onto. Everything already recorded moves onto the first tape. |
 | v1.2.3 | Winding is momentary from both the keys and the wheel, and hands the tape back to what it was doing. Clip titles are places, never coordinates. |
