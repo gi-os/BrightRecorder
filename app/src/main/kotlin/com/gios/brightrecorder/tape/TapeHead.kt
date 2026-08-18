@@ -32,6 +32,16 @@ class TapeHead(private val dir: File, val timeline: Timeline) : Closeable {
     private var file: RandomAccessFile? = null
     private var dataOffset = 0L
 
+    /**
+     * The levelling gain of the clip the window came from. See [Levels].
+     *
+     * Applied here rather than in the engine because *here* is the only place that knows which clip
+     * a sample came from, and the whole point of levelling is that the answer is per clip. It falls
+     * out of the window logic for free: a window never spans a boundary, so one gain covers it, and
+     * the engine goes on being a loop that knows nothing about files.
+     */
+    private var openGain = 1f
+
     private val window = ShortArray(WINDOW)
     private val bytes = ByteArray(WINDOW * BYTES_PER_SAMPLE)
 
@@ -40,17 +50,21 @@ class TapeHead(private val dir: File, val timeline: Timeline) : Closeable {
     private var windowLength = 0
 
     /**
-     * Sample [global] as a float in -1..1, or silence if it is not on the tape.
+     * Sample [global] as a float, levelled, or silence if it is not on the tape.
      *
-     * Silence rather than an exception for anything off the ends or unreadable: this is called
-     * from the audio thread tens of thousands of times a second, and the failure a missing file
-     * should produce is a quiet gap, not a stalled transport.
+     * Levelled means the result can exceed 1.0 — a quiet clip is turned up by as much as 12 dB more
+     * than its peak has room for, and holding that back is the engine's limiter, not this. See
+     * [Levels.MAX_LIMITING_DB].
+     *
+     * Silence rather than an exception for anything off the ends or unreadable: this is called from
+     * the audio thread tens of thousands of times a second, and the failure a missing file should
+     * produce is a quiet gap, not a stalled transport.
      */
     fun sample(global: Long): Float {
         if (global < windowStart || global >= windowStart + windowLength) {
             if (!load(global)) return 0f
         }
-        return window[(global - windowStart).toInt()] / 32768f
+        return window[(global - windowStart).toInt()] / 32768f * openGain
     }
 
     /** Pull in the window containing [global]. False if there is nothing there to read. */
@@ -89,6 +103,7 @@ class TapeHead(private val dir: File, val timeline: Timeline) : Closeable {
         return runCatching {
             file = RandomAccessFile(File(dir, clip.fileName), "r")
             dataOffset = info.dataOffset
+            openGain = clip.gain
             openIndex = index
             true
         }.getOrDefault(false)
@@ -97,6 +112,7 @@ class TapeHead(private val dir: File, val timeline: Timeline) : Closeable {
     override fun close() {
         runCatching { file?.close() }
         file = null
+        openGain = 1f
         openIndex = -1
         windowStart = -1L
         windowLength = 0

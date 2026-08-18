@@ -193,6 +193,12 @@ class TapeEngine(dir: File) {
             .build()
 
         val out = FloatArray(BLOCK)
+        // Levelling in [TapeHead] hands up samples that can be well past full scale — that is the
+        // point of it, and this is what keeps them from squaring off. The same limiter the record
+        // path uses, for the same reason: a quiet clip lifted 20 dB has one door slam in it that
+        // must not become a click. It costs about two milliseconds of latency at the head of a
+        // clip, which is the length of its look-ahead and is inaudible.
+        val limiter = Limiter(threshold = Levels.CEILING)
         // Rebuilt whenever the tape is swapped: the head holds an open file descriptor and a
         // buffer belonging to a particular clip list, so it cannot outlive one.
         var head: TapeHead? = null
@@ -229,7 +235,7 @@ class TapeEngine(dir: File) {
                         out[i] = 0f
                         continue
                     }
-                    out[i] = Resample.at(p, rate) { reader.sample(it) } * gain
+                    out[i] = softClip(limiter.process(Resample.at(p, rate) { reader.sample(it) })) * gain
                     p += rate
                 }
 

@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.5.7** (tag `v1.5.7`).
+**Current release: v1.6.8** (tag `v1.6.8`).
 
 ## Install by hand
 
@@ -263,6 +263,45 @@ it names what is *at* the fix rather than what is interesting nearby. A café co
 the fix lands on it. Naming the nearest notable thing would mean the Places API — a key, an
 account, and a billable lookup per recording — which is a different app from this one.
 
+## Loudness
+
+Every clip is measured once and played back through a gain that brings it to the same loudness as
+every other clip. A tape of moments is recorded in whatever the room was doing at the time — a
+kitchen, a street, a train, a room with one person in it — and left alone those come back twenty
+decibels apart. A fixed makeup gain on the record path cannot fix that, because it does not know
+how loud the room was until the recording is over.
+
+The measurement is **ITU-R BS.1770 integrated loudness**, the one streaming services use. Not a
+peak: two recordings with identical peaks can be twenty decibels apart to listen to. Not an RMS
+either: that counts a lorry passing at 40 Hz as loudly as a voice. Three parts of it earn their
+keep — K-weighting, which discounts what the ear is not sensitive to; overlapping 400 ms blocks,
+so a loud moment straddling a boundary is not averaged away; and two gates, which throw out the
+silence and then the merely quiet. Without the gates a four-second clip with three seconds of room
+tone in it reads as almost silent and gets turned up until the noise floor is a wall, which is
+exactly the material this app records.
+
+**The target is −16 LUFS**, and it is the one number to turn. Streaming services normalise to −14,
+and that figure is quoted for *stereo* material; a mono channel measured alone reads 3.01 LU lower
+for the same waveform, so the mono equivalent is about −17. This sits a decibel louder on purpose.
+
+Two limits keep it sensible. No clip is turned up more than 20 dB, or a recording of a silent room
+becomes a recording of a microphone's noise floor. And the playback limiter is never asked to pull
+down more than 12 dB — loudness is an average and peaks are not, so a quiet room with one door slam
+in it is far below the target on average with its loudest sample already at the ceiling, and a
+limiter swallowing all of that ducks the whole recording around every transient. Clips with
+headroom hit the target exactly; spiky ones land short of it and stay clean.
+
+**Nothing is rewritten.** The gain is applied on playback and the samples on disk are untouched, so
+this cannot damage a recording that cannot be made again, it applies to everything recorded before
+it existed, and changing the target re-levels the whole tape with no files rewritten.
+
+The measurement lives in a chunk after the samples in the clip's own WAV, which keeps the property
+the app rests on: there is no index anywhere that could disagree with a recording. A clip copied
+off the phone and back brings its measurement with it, and every other program skips the chunk
+without noticing. Measuring is a pass over the audio, so it happens in the background a clip at a
+time rather than on the launch path — the tape plays throughout, and each clip reaches its proper
+level as its own measurement lands.
+
 ## Why uncompressed
 
 22050 Hz, 16-bit, mono WAV. Every part of that is chosen for scrubbing rather than for
@@ -343,6 +382,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.6.8 | Every clip is measured for loudness and played back at the same level, about as loud as music on a streaming service — new recordings and everything already on the tape, with nothing rewritten. |
 | v1.5.7 | Hold the wheel to record. Rewinding to the front of the tape and letting go carries on playing — the transport rules moved into `Deck`, away from Android, with a test each. A clip is never filed under "Somewhere": the fix is kept warm, a stale one beats none, the time zone is the floor, and a clip named by a guess is renamed when the real name lands. |
 | v1.4.5 | The wheel scrubs at a speed that follows how fast you turn, instead of switching the transport in and out and blinking the wind keys. |
 | v1.3.4 | A shelf of tapes: name them, mark them with a pattern, swipe through them, load the one you want to record onto. Everything already recorded moves onto the first tape. |

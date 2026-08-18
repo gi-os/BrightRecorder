@@ -101,6 +101,7 @@ object TapeController {
 
     private var ticker: Job? = null
     private var locating: Job? = null
+    private var measuring: Job? = null
 
     fun attach(context: Context) {
         if (appContext != null) return
@@ -167,6 +168,9 @@ object TapeController {
         engine?.loadTape(tapeDir, Library.scan(tapeDir))
         Prefs.setCurrentTape(app, tape.dirName)
         refreshShelf()
+        // Everything on this tape that predates levelling gets measured now, in the background.
+        measuring?.cancel()
+        measureUnmeasured()
     }
 
     /** A new tape, put on the machine straight away — you made it in order to record onto it. */
@@ -454,9 +458,67 @@ object TapeController {
                 if (e != null && index >= 0) e.seek(e.tape.startOf(index))
             }
             publish()
+            // Measured after the reload rather than before it, so the clip is on the tape and
+            // playable the instant recording stops. The measurement only changes how loud it is.
+            measureUnmeasured()
             if (clip != null && provisional) nameWhenKnown(clip)
         }
         return clip
+    }
+
+    /**
+     * Work out how loud every clip on this tape is, for the ones nobody has measured yet.
+     *
+     * This is what makes levelling apply to everything already recorded rather than only to new
+     * recordings. It reads each unmeasured clip once, in the background, and writes the answer into
+     * the clip's own file — so it happens once in a tape's life however many times the app is
+     * opened, and a clip copied off the phone and back brings its answer with it.
+     *
+     * Deliberately not on the launch path. A tape of a few hundred clips is tens of megabytes to
+     * read, and the app has to be usable while that happens: the tape plays throughout, at unity
+     * gain for whatever has not been reached yet, and each clip starts playing at its proper level
+     * as soon as its own measurement lands.
+     *
+     * One clip at a time with a pause between, for the same reason — the point is that the app
+     * stays responsive, and a background pass that saturated the flash would not leave it that way.
+     * The tape is republished in batches as it goes, but only while nothing is playing: putting a
+     * new timeline on the machine makes the head reopen its file, and doing that under playback is
+     * a disk read in the audio loop.
+     */
+    private fun measureUnmeasured() {
+        if (measuring?.isActive == true) return
+        val d = dir ?: return
+        measuring = scope.launch {
+            var since = 0
+            var done = 0
+            // A snapshot, not a re-read per clip. Re-reading meant a directory scan and a header
+            // read per clip *per clip*, which on a tape of a few hundred is minutes of pointless
+            // I/O; anything recorded or deleted during the pass is picked up by the next one.
+            for (clip in engine?.tape?.clips.orEmpty()) {
+                if (d != dir) return@launch
+                if (clip.measured) continue
+                if (Library.measure(d, clip) == null) {
+                    // Unreadable or unwritable, and there is no way to mark it done without the
+                    // file — so skip it rather than spin, and let the next launch try again.
+                    Trouble.record("measure ${clip.fileName}")
+                    continue
+                }
+                done++
+                since++
+                // Republished in batches so the tape levels out as the pass goes, without paying
+                // for a rescan per clip — and never under playback, where swapping the timeline
+                // would make the head reopen its file from inside the audio loop.
+                if (since >= RELOAD_EVERY && _state.value.transport == Transport.Stopped) {
+                    since = 0
+                    reload()
+                }
+                // The pass is not urgent and the app has to stay usable while it runs.
+                delay(BREATH_MS)
+            }
+            // The last one is not optional: without it the clips measured since the most recent
+            // batch would go on playing at unity until something else reloaded the tape.
+            if (done > 0) reload()
+        }
     }
 
     /**
@@ -618,4 +680,10 @@ object TapeController {
 
     /** How often the wait above looks. Cheap: it reads one volatile field. */
     private const val NAMING_POLL_MS = 500L
+
+    /** Clips measured between one republish of the tape and the next. See [measureUnmeasured]. */
+    private const val RELOAD_EVERY = 8
+
+    /** A pause between clips while measuring, so the pass never competes with playing the tape. */
+    private const val BREATH_MS = 25L
 }
