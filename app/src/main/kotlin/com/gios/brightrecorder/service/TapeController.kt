@@ -99,6 +99,14 @@ object TapeController {
     private var recorder: Recorder? = null
     private var places: Places? = null
 
+    /**
+     * Every rule about what the transport does next, and the only place it is stored. See [Deck].
+     *
+     * Declared up here because [TapeEngine] takes it: the engine reads the transport from this
+     * rather than keeping a copy, which is what stopped the two of them disagreeing.
+     */
+    private val deck = Deck()
+
     private var ticker: Job? = null
     private var locating: Job? = null
     private var measuring: Job? = null
@@ -112,7 +120,7 @@ object TapeController {
         places = Places(app)
         // Pointed at the shelf until a tape is loaded, which happens below before anything can
         // play; the folder it actually reads from is set by [TapeEngine.loadTape].
-        engine = TapeEngine(shelf).also { e ->
+        engine = TapeEngine(shelf, deck).also { e ->
             e.onEnd = { atStart -> onRanOff(atStart) }
         }
 
@@ -231,14 +239,6 @@ object TapeController {
 
     // ------------------------------------------------------------------ transport
 
-    /**
-     * Every rule about what the transport does next. See [Deck].
-     *
-     * Nothing here decides; it only carries out. That separation is the point: the rules are the
-     * part that kept being wrong, and away from Android they have a test each.
-     */
-    private val deck = Deck()
-
     fun play() {
         if (_state.value.isRecording) return
         val e = engine ?: return
@@ -267,7 +267,6 @@ object TapeController {
         val e = engine ?: return
         val transport = deck.transport
         if (transport != Transport.Stopped && e.tape.isEmpty) return
-        e.setTransport(transport)
         if (transport != Transport.Stopped && transport != Transport.Recording) {
             e.start()
             startService()
@@ -362,7 +361,6 @@ object TapeController {
         // filed when it stops, and an armed resume would start the tape playing on top of it.
         deck.record()
         e.scrub.still()
-        e.setTransport(deck.transport)
         scope.launch { e.stop() }
 
         // Not `forget()` any more: the phone has not moved since the last recording, and the place
@@ -372,7 +370,6 @@ object TapeController {
 
         if (!r.start(System.currentTimeMillis())) {
             deck.finishedRecording()
-            e.setTransport(deck.transport)
             locating?.cancel()
             Trouble.record("start recording", r.failure)
             publish()
@@ -439,7 +436,6 @@ object TapeController {
         val best = places?.best
         val clip = r.stop(best?.name ?: Naming.NOWHERE)
         deck.finishedRecording()
-        engine?.setTransport(deck.transport)
         r.failure?.let { Trouble.record("finish the recording", it) }
 
         // The lookup is deliberately *not* cancelled when it has only a guess to show for itself.
@@ -581,7 +577,6 @@ object TapeController {
      */
     private fun onRanOff(atStart: Boolean) {
         deck.ranOff(atStart)
-        engine?.setTransport(deck.transport)
         if (!atStart) engine?.seek(engine?.tape?.samples ?: 0L)
     }
 
@@ -629,7 +624,7 @@ object TapeController {
             tapes = shelved,
             tape = current,
             clips = tape?.clips ?: emptyList(),
-            transport = if (r?.isRecording == true) Transport.Recording else e?.transport ?: Transport.Stopped,
+            transport = if (r?.isRecording == true) Transport.Recording else deck.transport,
             position = e?.position?.toLong() ?: 0L,
             total = tape?.samples ?: 0L,
             rate = e?.lastRate ?: 0f,

@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.6.8** (tag `v1.6.8`).
+**Current release: v1.7.9** (tag `v1.7.9`).
 
 ## Install by hand
 
@@ -155,6 +155,13 @@ recording is filed the moment it stops, so there is nothing to go back to.
 while they shared one, the wheel's idle timer could end a wind a *key* was still holding, so
 rewind quit early, playback resumed under your finger, and letting go then did nothing because
 the latch was already spent.
+
+**There is one transport and the engine does not copy it.** It used to, and that was the fault
+behind four releases of "letting go of rewind does not carry on playing": the copy was written from
+five places, one of them the audio thread reporting the end of the tape, and letting go at the end
+of a wind is exactly when those two collide. Whichever wrote last won, and when the audio thread
+won the tape stopped and nothing afterwards corrected it. `TapeEngine.transport` is now a property
+that reads the deck, so there is no copy to go stale.
 
 **The front of the tape is a wall, not a stop.** The reels stop against it, because there is no
 more tape to wind, and that is all that happens — the key is still down and what it interrupted is
@@ -382,6 +389,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.7.9 | Letting go of rewind or fast-forward carries on playing. The engine reads the transport from the deck instead of keeping a copy the audio thread could clobber, and the wind keys issue their release from a `finally` so it cannot be lost. |
 | v1.6.8 | Every clip is measured for loudness and played back at the same level, about as loud as music on a streaming service — new recordings and everything already on the tape, with nothing rewritten. |
 | v1.5.7 | Hold the wheel to record. Rewinding to the front of the tape and letting go carries on playing — the transport rules moved into `Deck`, away from Android, with a test each. A clip is never filed under "Somewhere": the fix is kept warm, a stale one beats none, the time zone is the floor, and a clip named by a guess is renamed when the real name lands. |
 | v1.4.5 | The wheel scrubs at a speed that follows how fast you turn, instead of switching the transport in and out and blinking the wind keys. |
