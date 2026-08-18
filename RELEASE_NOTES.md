@@ -1,3 +1,46 @@
+## BrightRecorder v1.7 — Letting go of a wind key, for the last time
+
+**Reported four times: rewind or fast-forward while the tape is playing, let go, and it does not
+carry on playing.**
+
+Each previous attempt found a real bug and fixed it. None of them found this one, because it was
+not in the rules — it was in there being two copies of them.
+
+### One transport, not two
+
+The deck decides what the machine is doing. The engine needs to know, and it kept its own copy,
+written from five places in the controller — one of which is the **audio thread**, reporting that
+the head has run out of tape.
+
+Letting go at the end of a wind is exactly when those two collide. The head reaches the front of
+the tape and the audio thread starts writing "stopped" into its copy; the finger comes up a
+millisecond later and the deck says "playing"; and whichever wrote last won. When the audio thread
+won, the tape stopped and stayed stopped, and nothing afterwards ever corrected it — the controller
+had already done its part, and the ticker faithfully reported what the engine believed.
+
+It could not be caught by testing the rules, because the rules were right. The engine now reads the
+transport from the deck instead of holding a copy, so there is nothing to go stale and the whole
+class of race is gone rather than narrowed. Two new tests pin it from both directions: the end of
+the tape reported *before* the release and *after* it must both leave the tape playing.
+
+### And the release cannot be lost
+
+Everything about a momentary key rests on the release actually happening, and if it does not the
+tape simply winds to the end of its travel and stops — which is indistinguishable, from the outside,
+from the resume logic being wrong. That ambiguity is most of why this took four goes.
+
+So the wind keys are rewritten against the raw pointer events, and the release is issued from a
+`finally`. A press ends when the finger lifts, and it also ends if the key leaves the screen, the
+window loses its pointers, or the app goes away under a held thumb. There is now no path through
+that code where a wind is started and not ended.
+
+Sliding your thumb off the key no longer ends the wind, which is a small deliberate change: it is a
+physical control under a thumb, and lifting is the only thing that means let go.
+
+- 172 tests, up from 169.
+
+---
+
 ## BrightRecorder v1.6 — Every clip the same loudness
 
 **Recordings were still too quiet, and no two of them were quiet by the same amount. Both are

@@ -2,7 +2,8 @@ package com.gios.brightrecorder.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,8 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -139,9 +142,25 @@ fun TabBar(selected: Int, labels: List<String>, onSelect: (Int) -> Unit) {
  * doing what it was doing before. A latching button cannot do that — with a latch you have to
  * watch for the tape arriving and then press play yourself.
  *
- * `tryAwaitRelease` returning false means the gesture was cancelled rather than lifted, which is
- * a finger sliding off the key. Both end the wind; anything else leaves the tape winding with
- * nothing holding it.
+ * ### The release is guaranteed, and that is the point of the code below
+ *
+ * Everything about a momentary key rests on the release happening. If it does not, the tape winds
+ * to the end of its travel and stops there, which reads to the user as "letting go did nothing" —
+ * and it is indistinguishable from the resume logic being wrong, which is how it cost several
+ * releases to find.
+ *
+ * So [onRelease] is called from a `finally`. A press ends when the finger lifts, and it *also* ends
+ * if the coroutine is cancelled — the key leaving composition, the window losing its pointers, the
+ * app going away under a held thumb. There is no path through this where a wind is started and not
+ * ended.
+ *
+ * Written against the raw pointer events rather than `detectTapGestures` for the same reason. That
+ * helper is built around taps and double taps, it decides for itself when a press has been
+ * cancelled, and a press it considers cancelled is one whose release you have to remember to treat
+ * as a release. Here there is one question — is a finger still down — and one answer.
+ *
+ * Sliding off the key does *not* end the wind, deliberately. It is a thumb on a physical control,
+ * and lifting is the only thing that means let go.
  */
 @Composable
 fun HoldKey(
@@ -152,6 +171,12 @@ fun HoldKey(
     onPress: () -> Unit,
     onRelease: () -> Unit,
 ) {
+    // Read live rather than captured, because the gesture loop below is created once and never
+    // restarted — which is itself deliberate: restarting it is one more way to lose a release.
+    val pressNow by rememberUpdatedState(onPress)
+    val releaseNow by rememberUpdatedState(onRelease)
+    val enabledNow by rememberUpdatedState(enabled)
+
     val fg = when {
         !enabled -> Faint
         held -> Color.Black
@@ -161,13 +186,24 @@ fun HoldKey(
         modifier
             .height(56.dp)
             .background(if (held && enabled) Color.White else Color.Black)
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                detectTapGestures(onPress = {
-                    onPress()
-                    tryAwaitRelease()
-                    onRelease()
-                })
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    if (!enabledNow) return@awaitEachGesture
+                    // Claiming the press stops anything above from taking it away mid-wind.
+                    down.consume()
+                    pressNow()
+                    try {
+                        var stillDown = true
+                        while (stillDown) {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { it.consume() }
+                            stillDown = event.changes.any { it.pressed }
+                        }
+                    } finally {
+                        releaseNow()
+                    }
+                }
             },
         contentAlignment = Alignment.Center,
     ) {

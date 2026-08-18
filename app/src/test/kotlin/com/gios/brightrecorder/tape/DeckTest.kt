@@ -65,6 +65,50 @@ class DeckTest {
         assertEquals(Transport.Playing, deck.transport)
     }
 
+    /**
+     * Fast-forward, named separately because it is what was reported and because the two keys took
+     * different paths through the old code.
+     */
+    @Test
+    fun `fast-forwarding while playing and letting go carries on playing`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = false)
+        assertEquals(Transport.FastForwarding, deck.transport)
+        deck.endWind(atEnd = false)
+        assertEquals(Transport.Playing, deck.transport)
+    }
+
+    /**
+     * The race the engine's copy of the transport used to lose.
+     *
+     * Letting go at the front of the tape has two things happening at once: the audio thread
+     * reporting that the head has run out of tape, and the finger coming up. Whichever order they
+     * arrive in, the answer has to be the same — and it has to be "playing", because that is what
+     * the rewind interrupted.
+     */
+    @Test
+    fun `the end being reported after the release does not undo the resume`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = true)
+        deck.endWind(atEnd = false)
+        assertEquals(Transport.Playing, deck.transport)
+        // The audio thread catches up a moment later.
+        deck.ranOff(atStart = true)
+        assertEquals(Transport.Playing, deck.transport)
+    }
+
+    @Test
+    fun `the end being reported before the release does not undo the resume either`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = true)
+        deck.ranOff(atStart = true)
+        deck.endWind(atEnd = false)
+        assertEquals(Transport.Playing, deck.transport)
+    }
+
     // ------------------------------------------------------------------ the other end
 
     @Test

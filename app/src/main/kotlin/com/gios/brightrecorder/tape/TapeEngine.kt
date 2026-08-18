@@ -37,7 +37,7 @@ import kotlin.math.abs
  * the lock — but it is called from the service between transports, never while the reels are
  * turning.
  */
-class TapeEngine(dir: File) {
+class TapeEngine(dir: File, private val deck: Deck) {
 
     /**
      * The folder the head reads from.
@@ -49,9 +49,20 @@ class TapeEngine(dir: File) {
     @Volatile
     private var dir: File = dir
 
-    @Volatile
-    var transport: Transport = Transport.Stopped
-        private set
+    /**
+     * What the machine is doing — read from [Deck], never copied.
+     *
+     * This used to be a field here that the controller wrote to from five different places, one of
+     * them the audio thread. That was the bug behind four releases of "rewinding while playing does
+     * not carry on playing when you let go", and it could not be caught by testing the rules,
+     * because the rules were right: letting go at the front of the tape has the audio thread
+     * reporting the end and the finger coming up at the same instant, and whichever of the two
+     * wrote its copy last won. The copy the audio thread was holding said stopped.
+     *
+     * A property with no state cannot go stale, so the whole class of race is gone rather than
+     * narrowed.
+     */
+    val transport: Transport get() = deck.transport
 
     /**
      * The wheel's contribution, which *overrides* the transport while it is turning.
@@ -135,10 +146,6 @@ class TapeEngine(dir: File) {
     fun skipClip(count: Int) {
         val t = tape
         seek(t.seekByClip(position.toLong(), count))
-    }
-
-    fun setTransport(next: Transport) {
-        transport = next
     }
 
     private fun silentFor(mode: Transport, t: Timeline): Boolean =
