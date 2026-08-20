@@ -159,8 +159,13 @@ private fun Counter(state: TapeState) {
 @Composable
 private fun Reels(state: TapeState) {
     var angle by remember { mutableFloatStateOf(0f) }
-    val rate by rememberUpdatedState(state.rate)
-    val moving = abs(state.rate) > 0.02f
+    // Recording moves the tape forward at exactly 1x, and the reels have to say so. They did not:
+    // the engine publishes a rate of zero while the microphone owns the audio path — correctly,
+    // because nothing is being *played* — and the reels were reading that as a stopped machine. So
+    // the one moment you most want to see the tape moving was the one moment it sat still.
+    val turning = if (state.isRecording) 1f else state.rate
+    val rate by rememberUpdatedState(turning)
+    val moving = abs(turning) > 0.02f
 
     // Driven by frames rather than by an animation: the angle is the integral of a rate that
     // changes continuously, which no keyframe animation expresses. The effect only exists while
@@ -178,7 +183,16 @@ private fun Reels(state: TapeState) {
         }
     }
 
-    val fill = if (state.total > 0) (state.position.toFloat() / state.total) else 0f
+    // While recording, the right reel fills with what is being captured rather than with where the
+    // head is — the head does not move during a recording, and a reel that does not fill while you
+    // are filling it is the wrong picture. Against ten minutes, which is longer than a moment and
+    // short enough that a few seconds visibly moves it.
+    val fill = when {
+        state.isRecording ->
+            (state.recorded / SAMPLES_PER_SECOND / RECORD_REEL_SECONDS).coerceIn(0f, 1f)
+        state.total > 0 -> state.position.toFloat() / state.total
+        else -> 0f
+    }
 
     Canvas(Modifier.fillMaxWidth().height(120.dp)) {
         val cy = size.height / 2f
@@ -354,3 +368,6 @@ private fun Keys(state: TapeState, onNeedMicrophone: () -> Unit) {
         }
     }
 }
+
+/** How much recording fills the reel on screen. Longer than a moment, short enough to see move. */
+private const val RECORD_REEL_SECONDS = 600f

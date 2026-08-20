@@ -6,6 +6,7 @@ import android.os.Build
 import com.gios.brightrecorder.Prefs
 import com.gios.brightrecorder.label.Label
 import com.gios.brightrecorder.place.Fix
+import com.gios.brightrecorder.place.Pending
 import com.gios.brightrecorder.place.Places
 import com.gios.brightrecorder.report.Trouble
 import com.gios.brightrecorder.tape.Clip
@@ -126,6 +127,7 @@ object TapeController {
     private var ticker: Job? = null
     private var locating: Job? = null
     private var measuring: Job? = null
+    private var naming: Job? = null
 
     fun attach(context: Context) {
         if (appContext != null) return
@@ -195,6 +197,8 @@ object TapeController {
         // Everything on this tape that predates levelling gets measured now, in the background.
         measuring?.cancel()
         measureUnmeasured()
+        naming?.cancel()
+        namePending()
     }
 
     /** A new tape, put on the machine straight away — you made it in order to record onto it. */
@@ -465,6 +469,9 @@ object TapeController {
         if (_state.value.isRecording) return
         if (places?.granted() != true) return
         startLocating()
+        // Coming to the front is also the moment to try again for anything filed without a name,
+        // because it is the moment the phone is most likely to have signal.
+        namePending()
     }
 
     /**
@@ -506,7 +513,14 @@ object TapeController {
             // Measured after the reload rather than before it, so the clip is on the tape and
             // playable the instant recording stops. The measurement only changes how loud it is.
             measureUnmeasured()
-            if (clip != null && provisional) nameWhenKnown(clip)
+            if (clip != null && provisional) {
+                // Put its position by before waiting, so a clip filed with no signal is still
+                // nameable in an hour's time when there is some. See [Pending].
+                val d = dir
+                val at = places?.lastFix
+                if (d != null && at != null) Pending.add(d, clip.fileName, at.first, at.second)
+                nameWhenKnown(clip)
+            }
         }
         return clip
     }
@@ -591,7 +605,68 @@ object TapeController {
         // machine. Only rename what is still there, and only on the tape it was recorded onto.
         if (d != dir) return
         Library.rename(d, clip, p.found.name) ?: return
+        Pending.remove(d, clip.fileName)
         reload()
+    }
+
+    /**
+     * Give their real names to clips that were filed before the geocoder could answer.
+     *
+     * The other half of [Pending], and the answer to a tape of clips all called the same country: a
+     * recording needs no network and a geocode does, so a moment caught with no signal keeps its
+     * position and gets looked up the next time there is some. Run when a tape is put on and when
+     * the app comes to the front, which between them covers "the next time you open it with signal".
+     *
+     * One clip at a time with a pause between, and every rename removes its own line, so a lookup
+     * that fails is simply tried again next time rather than losing the position.
+     */
+    private fun namePending() {
+        if (naming?.isActive == true) return
+        val d = dir ?: return
+        val p = places ?: return
+        naming = scope.launch {
+            if (Pending.list(d).isEmpty()) return@launch
+            // Anything whose clip has since gone — deleted, or renamed by hand — is not worth
+            // looking up. Pruned first so a stale line cannot keep the list alive for ever.
+            Pending.prune(d, engine?.tape?.clips.orEmpty().map { it.fileName }.toSet())
+            var renamed = false
+            for (each in Pending.list(d)) {
+                if (d != dir) return@launch
+                val clip = engine?.tape?.clips?.firstOrNull { it.fileName == each.fileName }
+                if (clip == null) {
+                    Pending.remove(d, each.fileName)
+                    continue
+                }
+                // Still no network, or the geocoder has nothing for that spot: leave the line where
+                // it is and stop, because the rest will be no luckier right now.
+                val name = p.nameOf(each.latitude, each.longitude) ?: break
+                if (Library.rename(d, clip, name) != null) renamed = true
+                Pending.remove(d, each.fileName)
+                delay(BREATH_MS)
+            }
+            if (renamed) reload()
+        }
+    }
+
+    /**
+     * File [clip] under a name you typed instead of the one it was given.
+     *
+     * The place in a filename is not sacred — it is a guess about where you were, and sometimes the
+     * useful name for a moment is "Ada's first word" rather than a street. Renaming is the same
+     * operation the geocoder's late answer uses, so there is nothing new to go wrong: the timestamp
+     * is kept, the tape does not reorder, and the file is the only thing that changes.
+     *
+     * Any position waiting to be looked up for this clip is dropped. A name you chose is not a guess
+     * for the geocoder to overwrite later.
+     */
+    fun renameClip(clip: Clip, place: String) {
+        val d = dir ?: return
+        if (place.isBlank()) return
+        scope.launch {
+            Pending.remove(d, clip.fileName)
+            if (Library.rename(d, clip, place) == null) return@launch
+            reload()
+        }
     }
 
     fun toggleRecord() {

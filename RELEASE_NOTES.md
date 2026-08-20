@@ -1,3 +1,67 @@
+## BrightRecorder v1.12 — Recording, and where you actually were
+
+### The reels turn while you record
+
+They did not, and the reason is worth writing down: the engine publishes a tape speed of zero while
+the microphone owns the audio path — correctly, because nothing is being *played* — and the reels
+were reading that as a stopped machine. So the one moment you most want to see the tape moving was
+the only moment it sat still. Recording moves the tape forward at exactly 1x, and the reels now say
+so. The right one fills as the recording grows, too.
+
+### The screen stays on while you record
+
+The foreground service already held a partial wake lock, which keeps the CPU going so a recording
+survives the panel going dark. This is the other half: while you are recording you are holding the
+phone at something that is happening, watching the counter and the level, and having the screen go
+out under your thumb means waking it to find out whether the recording is still running.
+
+A flag on the window rather than a wake lock, so it needs no permission and the system takes it back
+by itself — there is no path where this is left on with nothing recording.
+
+### It said New York wherever you were, and that was my doing
+
+Every clip named "New York" was the coarse fallback I added in v1.5, and it was wrong in the one
+situation this app exists for. It named the **time zone's city** — and a time zone is where the phone
+thinks it *lives*. It lags or never moves at all while travelling, so a phone set to
+`America/New_York` labelled every recording New York wherever in the world it was. With a city's
+precision, which reads as a fact rather than as the guess it was.
+
+Three changes, in order of how much they matter:
+
+- **The time zone is not used at all any more.** What is left is the country, and the **network's**
+  country first — that is where the phone is standing, reported by the tower it is talking to, and
+  it changes when you land.
+- **The last real name is remembered** across launches, and beats any country. A phone that
+  geocoded in Paris this morning and is indoors with no signal this afternoon says Paris, not
+  France. This is the tier that gives back the specificity.
+- **A clip recorded with no signal gets its real name later.** A recording needs no network; turning
+  a position into a name does. So the position is kept beside the tape, and the next time you open
+  the app with signal the clip is looked up and renamed — hours later if that is when it happens.
+
+### Rename a moment
+
+Hold a moment in the list to open it, and the place is editable. The place in a filename was only
+ever a guess about where you were, and sometimes the useful name is not a street at all — "Ada's
+first word" beats "Rue de Lappe, Paris" for a moment, and only you know which.
+
+The **time** is not editable, deliberately: the timestamp is what puts the tape in order, and a tape
+that reordered itself because you renamed something would be a different kind of object. A name you
+typed also cancels any pending lookup for that clip — your name is not a guess for the geocoder to
+overwrite.
+
+Holding a moment used to be *delete*, which put the one irreversible action in the app behind the
+easiest gesture to make by accident. Delete is a key on the sheet now, still behind its own
+confirmation.
+
+- 215 tests, up from 208.
+
+### Still to come
+
+Exporting a moment to BrightChat, which needs BrightChat to carry audio first: sending clips, and a
+player with a scrubber. Then Whisper transcription. Those are the next rounds.
+
+---
+
 ## BrightRecorder v1.11 — Letting go, with no exceptions
 
 **The rule is: the tape goes back to whatever it was doing before you pressed the key. It took four

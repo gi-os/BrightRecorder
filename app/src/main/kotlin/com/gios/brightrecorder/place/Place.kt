@@ -1,7 +1,6 @@
 package com.gios.brightrecorder.place
 
 import java.util.Locale
-import java.util.TimeZone
 
 /**
  * How well the place is known, which is the difference between a name and a guess.
@@ -15,11 +14,18 @@ enum class Fix {
     None,
 
     /**
-     * Right region, wrong detail. From the phone's own settings rather than from a position: the
-     * time zone and the network's country are both correct within a few hundred kilometres and
-     * cost nothing to read, which is what makes them the right thing to fall back to.
+     * Right region, wrong detail: the network's country, which costs nothing to read and is right
+     * within a country's width. See [Coarse] for why that is as far as this tier goes.
      */
     Coarse,
+
+    /**
+     * A real name, found earlier and remembered. Where the phone was, not necessarily where it is.
+     *
+     * Between the other two: far better than a country, and still worth replacing when a live
+     * lookup lands, which is why it is a tier of its own rather than being filed as [Named].
+     */
+    Remembered,
 
     /** A named place from a real position: a street, a neighbourhood, a city. */
     Named,
@@ -32,27 +38,24 @@ data class Place(val name: String, val fix: Fix) {
 /**
  * The place the phone knows it is in without asking anybody.
  *
- * There used to be nothing here, and a clip recorded before the lookup finished — which is most of
- * them — was filed under "Somewhere". "Somewhere" is honest and completely useless: a list of
- * fourteen clips called "Somewhere" is the filing system failing at the one job it has.
+ * The floor under a clip's name, for when there is no position or no way to look one up. It needs
+ * no permission, no network request and no fix.
  *
- * None of these needs a permission, a network, or a fix:
+ * ### Why the time zone is not used, having been
  *
- *  - **The time zone**, which on a phone with a SIM tracks the network and names a city.
- *    `Europe/Paris` is a better guess for where you are than nothing is, and while travelling it
- *    is the first thing about the phone to change.
- *  - **The network's country**, when the zone is one of the ones that names no place — `UTC`,
- *    `GMT+02:00`, `Etc/GMT-3`. This is where the phone is, as opposed to where it is configured
- *    to think it is, so it comes ahead of the locale.
- *  - **The locale's country**, last, for a phone with no SIM in it.
+ * The first version of this named the time zone's city — `Europe/Paris` is Paris — and it was wrong
+ * in the one situation this app is for. A time zone is where the phone thinks it *lives*, and it
+ * lags or never moves at all while travelling, so a phone set to `America/New_York` labelled every
+ * recording "New York" wherever in the world it was. Worse, it did so with a city's precision,
+ * which reads as a fact rather than as the guess it is.
  *
- * All are marked [Fix.Coarse] so a real name replaces them the moment one arrives.
+ * So what is left is the country, and the **network's** country first: that is where the phone is
+ * standing, reported by whatever tower it is talking to, and it changes when you land. The locale's
+ * country is behind it, for a phone with no SIM in it, and it is the same kind of guess the time
+ * zone was — so it is a last resort rather than a first.
  *
- * There is one way to get nothing out of this, and it is worth being straight about because the
- * promise elsewhere is that a clip is never called "Somewhere": a phone reporting `UTC` with no
- * SIM and a locale carrying no country has told us nothing about where it is, and inventing a
- * place for it would be a lie rather than a guess. Every phone this app runs on reports at least
- * one of the three.
+ * A country is coarse, and deliberately so. It is honest at the precision it has, and a clip filed
+ * under one is renamed the moment a real lookup lands — see `Places.best` and `Pending`.
  */
 object Coarse {
 
@@ -62,30 +65,12 @@ object Coarse {
      * [Places.coarse].
      */
     fun place(
-        zone: TimeZone = TimeZone.getDefault(),
         locale: Locale = Locale.getDefault(),
         networkCountry: String? = null,
     ): Place {
-        cityOf(zone.id)?.let { return Place(it, Fix.Coarse) }
         networkCountry?.let { code -> nameOfCountry(code, locale)?.let { return Place(it, Fix.Coarse) } }
         nameOfCountry(locale.country, locale)?.let { return Place(it, Fix.Coarse) }
         return Place("", Fix.None)
-    }
-
-    /**
-     * The city out of a zone id: `Europe/Paris` is Paris, `America/New_York` is New York.
-     *
-     * Region-only and offset-only ids name no place, and neither do the legacy three-letter ones,
-     * so anything without a `/` is refused outright. `Etc/GMT-3` has one and still names nothing,
-     * hence the region check as well.
-     */
-    private fun cityOf(id: String): String? {
-        val slash = id.lastIndexOf('/')
-        if (slash <= 0) return null
-        if (id.startsWith("Etc/")) return null
-        val city = id.substring(slash + 1).replace('_', ' ').trim()
-        if (city.isEmpty() || !city.all { it.isLetter() || it == ' ' || it == '-' }) return null
-        return city
     }
 
     /** A two-letter country code as a name, in the phone's own language. */
