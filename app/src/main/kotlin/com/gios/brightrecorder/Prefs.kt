@@ -18,9 +18,23 @@ object Prefs {
 
     private const val FILE = "brightrecorder"
     private const val KEY_TAPE = "tape"
+    private const val KEY_PLACE = "lastPlace"
 
     fun currentTape(context: Context): String? =
         sp(context).getString(KEY_TAPE, null)?.takeIf { it.isNotBlank() }
+
+    /**
+     * The last real place name this phone found. See `Places.remembered`.
+     *
+     * A fact about the phone rather than about any tape, which is why it is here and not beside a
+     * recording.
+     */
+    fun lastPlace(context: Context): String? =
+        sp(context).getString(KEY_PLACE, null)?.takeIf { it.isNotBlank() }
+
+    fun setLastPlace(context: Context, place: String) {
+        sp(context).edit().putString(KEY_PLACE, place).apply()
+    }
 
     fun setCurrentTape(context: Context, dirName: String?) {
         sp(context).edit().apply {

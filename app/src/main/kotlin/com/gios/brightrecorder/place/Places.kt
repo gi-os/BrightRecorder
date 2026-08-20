@@ -10,6 +10,7 @@ import android.location.LocationManager
 import android.os.Build
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
+import com.gios.brightrecorder.Prefs
 import com.gios.brightrecorder.tape.Naming
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -44,8 +45,10 @@ import kotlin.coroutines.resume
  *    press record, so by the time you press it there is usually already an answer.
  *  - **A stale position is better than none.** A cached fix from an hour ago is the wrong street
  *    and the right city, and the city is what goes in the title.
- *  - **There is always a floor.** Failing everything, the time zone and the network's country name
- *    a region without a permission, a network or a position. See [Coarse].
+ *  - **The last real name is remembered.** A place found an hour ago is the wrong street and the
+ *    right city, and the city is what goes in a title.
+ *  - **There is always a floor.** Failing all of that, the network's country names a region with no
+ *    permission, no request and no position. See [Coarse].
  *
  * What survives is a [Place] that says how well it is known, so a coarse name written into a
  * filename can be replaced by the real one when the lookup finally lands. See
@@ -78,6 +81,7 @@ class Places(private val context: Context) {
     val best: Place
         get() {
             if (found.known) return found
+            remembered?.let { if (it.name.isNotBlank()) return it }
             val coarse = coarse()
             return if (coarse.known) coarse else Place(Naming.NOWHERE, Fix.None)
         }
@@ -87,6 +91,29 @@ class Places(private val context: Context) {
      * we are in, which beats the country the phone is *configured* for. No permission needed —
      * `getNetworkCountryIso` has been free to read since this API existed.
      */
+    /**
+     * The last real place this phone found, remembered across launches.
+     *
+     * A tier between a live lookup and a country, and much the most useful of the three. A name from
+     * an hour ago is the wrong street and the right city, and the city is what goes in a title —
+     * whereas a country is right and says almost nothing. It matters most in exactly the case this
+     * app is for: a phone that geocoded in Paris this morning and is indoors with no signal this
+     * afternoon should say Paris, not France.
+     *
+     * Kept in preferences rather than beside a tape, because it is a fact about the phone rather
+     * than about any recording.
+     */
+    private var remembered: Place?
+        get() = Prefs.lastPlace(context)?.let { Place(it, Fix.Remembered) }
+        set(value) {
+            value?.takeIf { it.fix == Fix.Named }?.let { Prefs.setLastPlace(context, it.name) }
+        }
+
+    /** The position the last lookup used, for anything that wants to try the geocode again later. */
+    @Volatile
+    var lastFix: Pair<Double, Double>? = null
+        private set
+
     private fun coarse(): Place {
         val network = runCatching {
             (context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager)
@@ -132,9 +159,15 @@ class Places(private val context: Context) {
         // A name or nothing. Nothing means the geocoder had no answer — offline, usually, since
         // Android's reverse geocoder needs the network — and in that case what is already here is
         // as good as it gets, which is why this assigns only on success.
+        // The position is kept whether or not it could be turned into a name. That is the whole of
+        // "fix it later": a geocode needs the network and a recording does not, so a clip made with
+        // no signal is filed under a country with its coordinates put by for the next time there is
+        // some. See [Pending].
+        lastFix = fix.latitude to fix.longitude
         describe(fix)?.let {
             found = Place(it, Fix.Named)
             foundAt = System.currentTimeMillis()
+            remembered = found
         }
     }
 
@@ -207,6 +240,21 @@ class Places(private val context: Context) {
                 if (!ok && cont.isActive) cont.resume(null)
             }
         }
+
+    /**
+     * Look up a position recorded earlier, for a clip that was filed before the geocoder could
+     * answer. See [Pending].
+     *
+     * Separate from [locate] because there is no fix to find here — the position is already known,
+     * and the only thing that was missing was the network.
+     */
+    suspend fun nameOf(latitude: Double, longitude: Double): String? {
+        val fix = Location("stored").apply {
+            this.latitude = latitude
+            this.longitude = longitude
+        }
+        return describe(fix)
+    }
 
     /** The best human name for [fix], or null if the geocoder has nothing. */
     private suspend fun describe(fix: Location): String? {

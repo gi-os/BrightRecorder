@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.11.13** (tag `v1.11.13`).
+**Current release: v1.12.14** (tag `v1.12.14`).
 
 ## Install by hand
 
@@ -263,11 +263,16 @@ before the answer arrived, every time. Four things fix that, and it takes all fo
 - **A stale position beats none.** A cached fix from an hour ago is the wrong street and the
   right city, and the city is what goes in the title. Indoors, with nothing else on the phone
   asking for a position, it is the only thing that ever answers.
-- **There is a floor.** The phone's time zone names a city, the mobile network names a country,
-  and the locale names one behind that — none needing a permission, a network request or a
-  position. `Europe/Paris` is a better guess for where you were than nothing is. The network's
-  country outranks the locale's, because it is where the phone *is* rather than where it is
-  configured to think it is.
+- **The last real name is remembered** across launches and beats any country: a phone that
+  geocoded in Paris this morning and is indoors this afternoon says Paris, not France.
+- **A clip recorded with no signal is named later.** A recording needs no network and a geocode
+  does, so the position is kept beside the tape and looked up the next time the app opens with
+  signal — hours later if that is when it happens. It is a work queue, not an index: losing it costs
+  a retry, never a recording.
+- **There is a floor.** The mobile network's country, then the locale's. The **time zone is not
+  used**, and used to be: it named its city, and a time zone is where the phone thinks it *lives*,
+  so a phone set to `America/New_York` labelled every recording "New York" wherever in the world it
+  was — with a city's precision, which reads as a fact rather than a guess.
 
 A clip filed under one of those guesses **gets its real name later**. The lookup keeps going for
 a minute and a half after you stop, and when it lands the clip is renamed. There is no index to
@@ -448,6 +453,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.12.14 | The reels turn and the screen stays on while recording. The time zone is no longer used to guess a place — it was what named everything "New York" — and a clip recorded with no signal is renamed when the phone next has some. Moments can be renamed by hand. |
 | v1.11.13 | Letting go of a wind key goes back to what the tape was doing, with no exceptions — the last two, both at the end of the tape, are gone. The readout says what letting go will do. Winding runs at 8x, stepping to 16x and 32x on a second tap, and the wheel holds 8.0x. |
 | v1.10.12 | The pen draws in grey — the halftone at half, in the same pattern the photographs use — and the preview and the saved label now go through one paint, so a pattern looks the same in both. |
 | v1.9.11 | The label in the editor is the label on the tape — one shape, derived in one place. Photographs move, zoom and grade; titles move, turn and size, in nine faces including cursive, comic and pixel; the pen draws in black as well as white. |

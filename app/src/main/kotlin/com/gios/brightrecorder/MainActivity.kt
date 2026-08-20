@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -181,6 +183,26 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            // The screen stays awake for as long as the reels are turning.
+            //
+            // The service already holds a partial wake lock, which keeps the *CPU* going so a
+            // recording survives the panel going dark. This is the other half: while you are
+            // recording you are holding the phone at something that is happening, watching the
+            // level meter and the counter, and having the screen go out under your thumb means
+            // waking it to find out whether the recording is still running.
+            //
+            // A flag on the window rather than a wake lock, because it needs no permission and the
+            // system takes it away by itself when the activity goes away — there is no path where
+            // this is left on with nothing recording.
+            val recording by TapeController.state.collectAsStateWithLifecycle()
+            DisposableEffect(recording.isRecording) {
+                if (recording.isRecording) {
+                    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                } else {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                }
+                onDispose { window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+            }
             BrightRecorderTheme {
                 CompositionLocalProvider(LocalWheelBus provides wheel) {
                     Root(onRecord = ::startRecording)
