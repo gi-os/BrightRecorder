@@ -36,6 +36,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gios.brightrecorder.hw.WheelScroll
+import androidx.compose.ui.platform.LocalContext
+import com.gios.brightrecorder.share.Export
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.service.TapeState
 import com.gios.brightrecorder.tape.Clip
@@ -236,7 +238,9 @@ private fun MomentSheet(
     onDelete: () -> Unit,
     onDone: (String) -> Unit,
 ) {
+    val context = LocalContext.current
     var text by remember { mutableStateOf(clip.place) }
+    var sending by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
@@ -264,14 +268,22 @@ private fun MomentSheet(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            "Recorded ${Naming.whenOnly(clip.startedAt)}. The time stays as it is — it is what keeps " +
-                "the tape in order.",
+            sending?.takeIf { it.isNotBlank() }
+                ?: "Recorded ${Naming.whenOnly(clip.startedAt)}. The time stays as it is — it is " +
+                "what keeps the tape in order.",
             style = MaterialTheme.typography.bodyMedium,
             color = Faint,
         )
         Spacer(Modifier.height(22.dp))
         Row(Modifier.fillMaxWidth()) {
             TransportKey(glyph = "BACK", modifier = Modifier.weight(1f), onClick = onCancel)
+            // Sending goes through the same rename sheet as everything else about a moment, because
+            // this is where you are when you have decided a particular recording is the one.
+            TransportKey(glyph = "SEND", modifier = Modifier.weight(1f)) {
+                val dir = TapeController.currentDir()
+                val sent = dir != null && Export.send(context, dir, clip)
+                sending = if (sent) "" else "Nothing on this phone can take a sound."
+            }
             TransportKey(glyph = "DELETE", modifier = Modifier.weight(1f), onClick = onDelete)
             TransportKey(
                 glyph = "SAVE",

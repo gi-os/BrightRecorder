@@ -44,6 +44,13 @@
     -->
     <queries>
         <package android:name="com.gios.lightcamera" />
+        <!--
+            BrightChat, so a moment can be sent straight into a conversation rather than through a
+            chooser. Package visibility on API 30+ is opt-in: without this, resolving an explicit
+            intent at BrightChat finds nothing on a phone that has it installed, and the send falls
+            back to a chooser for no reason.
+        -->
+        <package android:name="com.gios.lightchat" />
     </queries>
 
     <application
@@ -75,5 +82,27 @@
             android:name=".service.TapeService"
             android:exported="false"
             android:foregroundServiceType="microphone|mediaPlayback" />
+
+        <!--
+            Handing a moment to another app.
+
+            A recording lives in this app's private storage, so a share cannot pass a file path: the
+            receiving app has no permission to read it and the URI would resolve to nothing. A
+            FileProvider issues a content:// URI instead, and the grant rides on the intent — read
+            only, one clip at a time, revoked when the receiver is done with it.
+
+            `grantUriPermissions` is what makes that work at all, and the paths it may serve are
+            listed in `shared_clips.xml` rather than being the whole directory.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.clips"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_clips" />
+        </provider>
+
     </application>
 </manifest>
