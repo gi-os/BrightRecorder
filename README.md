@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.13.15** (tag `v1.13.15`).
+**Current release: v1.14.16** (tag `v1.14.16`).
 
 ## Install by hand
 
@@ -175,9 +175,16 @@ tape and the tape stops on its own when it gets there; that never needed pre-emp
 While a wind key is held the readout says where it is going — `<< 8.0x → PLAY` — because the machine
 knows and four releases of guessing was enough.
 
-**Winding runs at 8x, and steps.** Tap the same key again for 16x, again for 32x; a press that is
-not a second tap starts again at 8x. Past roughly 8x speech stops being something you can navigate
-by, which is why the higher gears are a deliberate second press rather than where the key starts.
+**Winding runs at 8x**, one speed. 4x was slower than you want for finding a moment three clips
+back, and past roughly 8x speech stops being something you can navigate by — which is the whole
+point of hearing the tape while it winds.
+
+**Double-tap a wind key to skip a whole moment**, forwards or back. Winding finds a place inside a
+recording; a tape of moments is also a list, and reaching the next one by winding through the rest
+of this one is the long way round. It obeys the same rule letting go does, so double-tapping while
+playing lands on the next moment still playing. This is what a second tap means instead of the
+16x/32x gears it briefly meant in v1.11 — skipping is worth more than a faster wind nobody can
+follow.
 
 That asymmetry is why `Deck` exists. The transport used to be a field four threads wrote to — the
 keys from composition, the wheel from the input thread, the end of the tape from the audio thread,
@@ -453,6 +460,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.14.16 | Holding a moment opens it — the gesture was on the container and the row's own tap handler ate it, so renaming and deleting were both unreachable. Double-tapping a wind key skips a moment, which replaces the 16x/32x gears. |
 | v1.13.15 | A moment can be sent to BrightChat, over a `FileProvider` URI with a read grant on the intent — straight there when it is installed, through a chooser when it is not. |
 | v1.12.14 | The reels turn and the screen stays on while recording. The time zone is no longer used to guess a place — it was what named everything "New York" — and a clip recorded with no signal is renamed when the phone next has some. Moments can be renamed by hand. |
 | v1.11.13 | Letting go of a wind key goes back to what the tape was doing, with no exceptions — the last two, both at the end of the tape, are gone. The readout says what letting go will do. Winding runs at 8x, stepping to 16x and 32x on a second tap, and the wheel holds 8.0x. |

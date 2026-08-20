@@ -87,26 +87,18 @@ fun ClipsScreen(state: TapeState) {
         LazyColumn(Modifier.weight(1f), state = listState) {
             items(state.clips, key = { it.fileName }) { clip ->
                 val selected = clip.fileName == here?.fileName
-                Box(
-                    Modifier.pointerInput(clip.fileName) {
-                        detectTapGestures(
-                            onTap = { TapeController.seekToClip(clip) },
-                            // A hold opens the moment rather than deleting it. Deleting used to be
-                            // the hold, which put the one irreversible action in the app behind the
-                            // easiest gesture to make by accident — and left renaming with nowhere
-                            // to live. It is a key on the sheet now, still behind a confirmation.
-                            onLongPress = { renaming = clip },
-                        )
-                    },
-                ) {
-                    ClipRow(
-                        label = clip.place,
-                        sub = Naming.whenOnly(clip.startedAt),
-                        selected = selected,
-                        trailing = counter(clip.seconds),
-                        onClick = { TapeController.seekToClip(clip) },
-                    )
-                }
+                ClipRow(
+                    label = clip.place,
+                    sub = Naming.whenOnly(clip.startedAt),
+                    selected = selected,
+                    trailing = counter(clip.seconds),
+                    // A hold opens the moment: rename it, send it, delete it. The gesture lives on
+                    // the row itself, because the row's own `clickable` consumed the events and a
+                    // hold on a parent never fired — which is why holding a moment did nothing at
+                    // all, and why renaming shipped unreachable.
+                    onLongClick = { renaming = clip },
+                    onClick = { TapeController.seekToClip(clip) },
+                )
                 Rule()
             }
         }

@@ -237,67 +237,75 @@ class DeckTest {
     }
 }
 
-/** The gears a wind runs in, and what the machine says it is about to do. */
+/** How fast a wind runs, what a double tap does to it, and what the machine says it will do. */
 class DeckSpeedTest {
 
     @Test
-    fun `a wind starts at eight times`() {
+    fun `a wind runs at eight times`() {
         val deck = Deck()
         deck.beginWind(back = true)
-        assertEquals(8f, deck.windSpeed, 0.01f)
-    }
-
-    /** Tap the same key again and it steps up: 8, 16, 32. */
-    @Test
-    fun `tapping again steps up a gear`() {
-        val deck = Deck()
-        deck.beginWind(back = true)
-        deck.endWind()
-        deck.beginWind(back = true, step = true)
-        assertEquals(16f, deck.windSpeed, 0.01f)
-        deck.endWind()
-        deck.beginWind(back = true, step = true)
-        assertEquals(32f, deck.windSpeed, 0.01f)
-    }
-
-    @Test
-    fun `the top gear is the top`() {
-        val deck = Deck()
-        repeat(6) {
-            deck.beginWind(back = true, step = it > 0)
-            deck.endWind()
-        }
-        deck.beginWind(back = true, step = true)
-        assertEquals(32f, deck.windSpeed, 0.01f)
-    }
-
-    /** A press that is not a second tap starts again at the bottom. */
-    @Test
-    fun `a fresh press drops back to eight times`() {
-        val deck = Deck()
-        deck.beginWind(back = true)
-        deck.endWind()
-        deck.beginWind(back = true, step = true)
-        assertEquals(16f, deck.windSpeed, 0.01f)
-        deck.endWind()
-        deck.beginWind(back = true, step = false)
         assertEquals(8f, deck.windSpeed, 0.01f)
     }
 
     /**
-     * Letting go does *not* put the gear back, and must not: stepping up is tap, tap, tap, so the
-     * gear has to survive the gap between two taps — and letting go is that gap. Resetting here is
-     * what stopped 32x from ever being reachable.
+     * One speed, not a set of gears.
+     *
+     * A second tap used to step the wind to 16x and then 32x. That gesture went to skipping a
+     * moment instead, which is the more useful of the two: a tape of moments is a list of things,
+     * and past roughly 8x winding stops being something you can navigate by anyway.
      */
     @Test
-    fun `letting go keeps the gear for the next tap`() {
+    fun `the speed does not change between winds`() {
         val deck = Deck()
+        repeat(4) {
+            deck.beginWind(back = true)
+            assertEquals(8f, deck.windSpeed, 0.01f)
+            deck.endWind()
+        }
+    }
+
+    // ----------------------------------------------------- a wind key tapped twice
+
+    /**
+     * The second tap of a double tap arrives with the first tap's wind already running, so ending
+     * it cannot wait for a key to come up that is already up.
+     */
+    @Test
+    fun `cancelling a wind goes back to what was playing`() {
+        val deck = Deck()
+        deck.play()
         deck.beginWind(back = false)
+        deck.cancelWind()
+        assertEquals(Transport.Playing, deck.transport)
+        assertFalse(deck.isWinding)
+    }
+
+    @Test
+    fun `cancelling a wind from stopped stays stopped`() {
+        val deck = Deck()
+        deck.beginWind(back = true)
+        deck.cancelWind()
+        assertEquals(Transport.Stopped, deck.transport)
+    }
+
+    /** And letting go afterwards must not resurrect it. */
+    @Test
+    fun `letting go after a cancelled wind does nothing`() {
+        val deck = Deck()
+        deck.play()
+        deck.beginWind(back = true)
+        deck.cancelWind()
+        deck.stop()
         deck.endWind()
-        deck.beginWind(back = false, step = true)
-        assertEquals(16f, deck.windSpeed, 0.01f)
-        deck.endWind()
-        assertEquals(16f, deck.windSpeed, 0.01f)
+        assertEquals(Transport.Stopped, deck.transport)
+    }
+
+    @Test
+    fun `cancelling when nothing is winding is harmless`() {
+        val deck = Deck()
+        deck.play()
+        deck.cancelWind()
+        assertEquals(Transport.Playing, deck.transport)
     }
 
     // ------------------------------------------------------ what it says it will do

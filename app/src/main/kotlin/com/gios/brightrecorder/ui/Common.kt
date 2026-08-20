@@ -1,7 +1,9 @@
 package com.gios.brightrecorder.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -65,13 +67,20 @@ fun EmptyState(message: String, modifier: Modifier = Modifier) {
  * Full-width tappable row. Selection inverts the whole row rather than tinting it —
  * on a greyscale matte panel an inversion is the only state change that reads at
  * arm's length in a dark room.
+ *
+ * [onLongClick] belongs *here* rather than on whatever wraps this row, and that is not a style
+ * preference. A row with its own `clickable` consumes the pointer events, so a `detectTapGestures`
+ * on a parent never sees them — which is exactly how holding a moment came to do nothing at all,
+ * taking renaming and deleting with it. One modifier owns the gestures for one row.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ClipRow(
     label: String,
     sub: String? = null,
     selected: Boolean = false,
     trailing: String? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val fg = if (selected) Color.Black else Color.White
@@ -79,7 +88,7 @@ fun ClipRow(
         Modifier
             .fillMaxWidth()
             .background(if (selected) Color.White else Color.Black)
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 13.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
