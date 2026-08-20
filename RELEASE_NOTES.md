@@ -1,3 +1,34 @@
+## BrightRecorder v1.14 — Skip a moment, and rename one
+
+### Renaming was unreachable, and so was deleting
+
+Holding a moment in the list did nothing at all. The row carries its own tap handler, and a row that
+handles its own taps **consumes the pointer events** — so the hold I had put on the container around
+it never saw them. Renaming shipped in v1.12 behind a gesture that could not fire, and the
+long-press delete that predates it had never worked either.
+
+The gesture lives on the row itself now. Hold a moment and the sheet opens: rename it, send it to
+BrightChat, or delete it.
+
+### Double-tap a wind key to skip a moment
+
+Winding is for finding a place *inside* a recording. A tape of moments is also a list, and getting
+to the next one by winding through the rest of this one is the long way round. So a second tap of
+fast-forward jumps to the next moment, and a second tap of rewind jumps to the start of the previous
+one.
+
+It obeys the same rule letting go does: the tape goes back to whatever it was doing. Double-tap
+while playing and you land on the next moment still playing.
+
+**This replaces the 16x and 32x gears** from v1.11. That was the other thing a second tap could
+mean, and skipping is worth more: a wind at 8x is fast enough to cross a moment in a second or two,
+and past roughly 8x speech stops being something you can navigate by — which is the entire point of
+hearing the tape while it winds. Winding is one speed again.
+
+- 216 tests.
+
+---
+
 ## BrightRecorder v1.13 — Send a moment
 
 **A moment can be sent to BrightChat.** Hold a moment in the list to open it and there is a SEND

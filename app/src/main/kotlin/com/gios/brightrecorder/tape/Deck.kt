@@ -135,9 +135,22 @@ class Deck {
     fun endWind() = synchronized(lock) {
         if (!wind.isWinding) return@synchronized
         transport = wind.end()
-        // The gear is deliberately *not* put back here. Stepping up is tap, tap, tap — so the gear
-        // has to survive the gap between two taps, and letting go is that gap. A press that is not
-        // a second tap resets it; see [beginWind].
+    }
+
+    /**
+     * A wind key tapped twice: end the wind without waiting for the key to come up.
+     *
+     * The *skip itself* belongs to the engine, because only it knows where the clips are. This is
+     * the transport half, and the reason it is not simply [endWind] is that the first press of a
+     * double tap has already started a wind. Winding for a tenth of a second and then jumping is
+     * fine; being left in a wind that nobody is holding is not.
+     *
+     * What the tape was doing before that first press is what it goes back to — the same rule
+     * letting go obeys — so double-tapping while playing lands on the next moment and plays on.
+     */
+    fun cancelWind() = synchronized(lock) {
+        if (!wind.isWinding) return@synchronized
+        transport = wind.end()
     }
 
     /**
