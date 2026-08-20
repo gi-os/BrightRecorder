@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.12.14** (tag `v1.12.14`).
+**Current release: v1.13.15** (tag `v1.13.15`).
 
 ## Install by hand
 
@@ -453,6 +453,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.13.15 | A moment can be sent to BrightChat, over a `FileProvider` URI with a read grant on the intent — straight there when it is installed, through a chooser when it is not. |
 | v1.12.14 | The reels turn and the screen stays on while recording. The time zone is no longer used to guess a place — it was what named everything "New York" — and a clip recorded with no signal is renamed when the phone next has some. Moments can be renamed by hand. |
 | v1.11.13 | Letting go of a wind key goes back to what the tape was doing, with no exceptions — the last two, both at the end of the tape, are gone. The readout says what letting go will do. Winding runs at 8x, stepping to 16x and 32x on a second tap, and the wheel holds 8.0x. |
 | v1.10.12 | The pen draws in grey — the halftone at half, in the same pattern the photographs use — and the preview and the saved label now go through one paint, so a pattern looks the same in both. |

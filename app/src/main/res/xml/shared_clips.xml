@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    What the FileProvider will hand out, and nothing else.
+
+    `tape/` is where the shelf lives, so this covers every tape's folder and every clip on it. It is
+    named rather than a bare <files-path path="." /> because the same private directory holds the
+    crash log and the report token, and a provider that would serve those to any app that asked for
+    a URI is a provider with a hole in it.
+-->
+<paths>
+    <files-path name="tapes" path="tape/" />
+</paths>

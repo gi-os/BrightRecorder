@@ -262,6 +262,9 @@ object TapeController {
      */
     fun dirOf(tape: Tape): File? = root?.let { Tapes.dirOf(it, tape) }
 
+    /** The folder the tape on the machine lives in, for anything that needs to reach a clip file. */
+    fun currentDir(): File? = dir
+
     /** A label was written on. Nothing about the tape changed, but what it looks like did. */
     fun labelChanged() {
         labelRevision++

@@ -1,3 +1,29 @@
+## BrightRecorder v1.13 — Send a moment
+
+**A moment can be sent to BrightChat.** Hold a moment in the list to open it and there is a SEND
+key beside the name.
+
+A recording lives in this app's private storage, so a share cannot pass a file path — the receiving
+app has no permission to read it and the path resolves to nothing. A `FileProvider` issues a
+`content://` URI instead and the read grant rides on the intent: one clip at a time, read only,
+revoked when the receiver is done with it. The paths it will serve are listed rather than being the
+whole directory, because the same private folder holds the crash log and the report token.
+
+With BrightChat installed the clip goes **straight there** — it declares itself a share target for
+audio now, so an explicit intent opens it on a conversation with the moment attached rather than
+putting a chooser in the way every time. Without it, you get a chooser, which is the right answer
+for anything else on the phone that can take a sound.
+
+The clip's own title travels with it, so a moment arriving somewhere that has never heard of a tape
+still says where and when it was.
+
+**BrightChat 2.x is needed for the direct hand-off** — see its release for the other half: sending
+audio clips, and a player with a scrubber to listen to them on.
+
+- 215 tests.
+
+---
+
 ## BrightRecorder v1.12 — Recording, and where you actually were
 
 ### The reels turn while you record
