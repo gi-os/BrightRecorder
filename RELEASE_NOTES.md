@@ -1,3 +1,33 @@
+## BrightRecorder v1.16 — Letting go of fast-forward finally plays
+
+**The reported fault, in its exact words: press play, fast-forward, let go — and it just stays
+paused.** Five releases have chased this, and the readout added in v1.11 did its job: it said
+`→ PLAY`, and the tape did not play, which put the fault downstream of every rule in the deck.
+
+Here is where it was. A wind runs at 8x and a moment is a few seconds long, so fast-forwarding
+while playing reaches the **end of the tape almost every time you use it**. The head parks against
+the end under your thumb — correctly. You let go, and the resume rule does its job — correctly:
+the transport says playing. Then the very first audio block, 23 milliseconds later, finds the head
+at the end of a moving tape, reports it, and the transport stops. Play "resumed" for zero audible
+samples. v1.11 looked straight at this and called it right — "a start that instantly stops again
+is the correct thing for a tape that has run out" — and that judgment, not any race or lost
+release, was the bug. The rule was never broken again after v1.7; it was being obeyed into
+silence.
+
+The play key has guarded against this exact dead button all along: pressing play with the head at
+the very end moves it to the start first, because a start that instantly stops "reads as a dead
+button." Letting go of a wind now gets the same answer — resume into play with the head parked at
+the end, and the head goes back to the start of the tape. Rewind-to-the-front already behaved:
+letting go plays on from the beginning. Both directions now end in the same place: sound.
+
+The rule in the deck is untouched and still has no exceptions — letting go goes back to what the
+tape was doing. Where the head sits was never the rule's business; it is the controller's, and the
+controller now answers it the way it always answered the play key.
+
+- 216 tests.
+
+---
+
 ## BrightRecorder v1.15 — The double tap actually skips
 
 **v1.14 said a second tap of a wind key skips a moment. It did not — the notes shipped and the

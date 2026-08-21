@@ -36,8 +36,11 @@ package com.gios.brightrecorder.tape
  *    play. There is nothing left to play, and the tape stops on its own when it gets there — which
  *    it does through [ranOff] a moment later, without this having to pre-empt it.
  *  - And letting go at the very end refused to resume into play at all, to avoid a start that
- *    instantly stopped again. A start that instantly stops again is the right thing for a tape that
- *    has run out, and it is one fewer line to be wrong about.
+ *    instantly stopped again. The refusal was wrong, and so was the shrug that replaced it: a
+ *    start that instantly stops again *reads as letting go doing nothing*, and it was reported as
+ *    exactly that. The resume stays unconditional here — letting go says play — and the
+ *    controller answers the parked head the same way its play key always has, by moving it back
+ *    to the start. Where the head sits is not this rule's business.
  *
  * So an end of the tape parks the reels and touches nothing else. The key may still be down;
  * letting go is the only thing allowed to decide where the tape goes, and it decides it the same

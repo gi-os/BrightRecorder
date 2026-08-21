@@ -362,6 +362,20 @@ object TapeController {
         lastWindReleasedAt = System.nanoTime() / 1_000_000L
         if (!deck.isWinding) return
         deck.endWind()
+        // Letting go into play with the head parked at the very end is the dead button [play]
+        // already guards against: the tape starts, runs off the end inside the first audio block,
+        // and stops — which reads as "letting go did nothing". And it is the common case, not the
+        // corner: a wind runs at 8x and a moment is a few seconds long, so fast-forwarding while
+        // playing reaches the end of the tape almost every time. Same case, same answer as the
+        // play key: the head goes back to the start, so the tape audibly does what the readout
+        // promised. The resume rule itself stays exception-free in [Deck] — where the head sits
+        // is not the rule's business, it is this controller's.
+        val e = engine
+        if (deck.transport == Transport.Playing && e != null &&
+            e.position >= e.tape.samples.toDouble()
+        ) {
+            e.seek(0)
+        }
         follow()
     }
 

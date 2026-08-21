@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.15.17** (tag `v1.15.17`).
+**Current release: v1.16.18** (tag `v1.16.18`).
 
 ## Install by hand
 
@@ -460,6 +460,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.16.18 | Letting go of fast-forward while playing plays. The wind reaches the end of the tape almost every time, and resuming into play with the head parked there stopped inside the first audio block — so letting go now moves the head to the start, the same answer the play key has always given a parked head. |
 | v1.15.17 | Double-tapping a wind key now actually skips a moment — v1.14 shipped the notes without the wiring, so a second tap still ran the old 16x gear. The gears are gone from the code as well as the notes, and tap-tap-tap hops a moment per tap. |
 | v1.14.16 | Holding a moment opens it — the gesture was on the container and the row's own tap handler ate it, so renaming and deleting were both unreachable. Double-tapping a wind key skips a moment, which replaces the 16x/32x gears. |
 | v1.13.15 | A moment can be sent to BrightChat, over a `FileProvider` URI with a read grant on the intent — straight there when it is installed, through a chooser when it is not. |
