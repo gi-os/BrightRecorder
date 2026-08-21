@@ -28,9 +28,8 @@ enum class Transport {
         get() = when (this) {
             Stopped -> 0f
             Playing -> 1f
-            // Direction only. How *fast* a wind runs is [Deck.windSpeed], because it is something
-            // the user changes — tap the key again and it steps up — and a number on an enum is not
-            // something anybody can change.
+            // Direction only. How *fast* a wind runs is [Deck.windSpeed]; the sign here says
+            // which way, and the deck says how fast.
             Rewinding -> -1f
             FastForwarding -> 1f
             // The tape moves forward at exactly 1x while recording, and nothing may change that.

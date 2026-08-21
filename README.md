@@ -26,7 +26,7 @@ Bright app, at
 Repo name **BrightRecorder**, launcher label **Recorder**, applicationId
 `com.gios.brightrecorder`.
 
-**Current release: v1.14.16** (tag `v1.14.16`).
+**Current release: v1.15.17** (tag `v1.15.17`).
 
 ## Install by hand
 
@@ -460,6 +460,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.15.17 | Double-tapping a wind key now actually skips a moment — v1.14 shipped the notes without the wiring, so a second tap still ran the old 16x gear. The gears are gone from the code as well as the notes, and tap-tap-tap hops a moment per tap. |
 | v1.14.16 | Holding a moment opens it — the gesture was on the container and the row's own tap handler ate it, so renaming and deleting were both unreachable. Double-tapping a wind key skips a moment, which replaces the 16x/32x gears. |
 | v1.13.15 | A moment can be sent to BrightChat, over a `FileProvider` URI with a read grant on the intent — straight there when it is installed, through a chooser when it is not. |
 | v1.12.14 | The reels turn and the screen stays on while recording. The time zone is no longer used to guess a place — it was what named everything "New York" — and a clip recorded with no signal is renamed when the phone next has some. Moments can be renamed by hand. |

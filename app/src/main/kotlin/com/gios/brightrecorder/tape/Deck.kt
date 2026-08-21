@@ -49,14 +49,14 @@ class Deck {
 
     private companion object {
         /**
-         * The speeds a wind runs at, in order. Tap the key again to step up.
+         * The one speed a wind runs at, as a multiple of playing speed.
          *
-         * 8x is where it starts rather than the 4x it was, because 4x is slower than you want for
-         * finding a moment three clips back. Past roughly 8x speech stops being something you can
-         * navigate by at all, which is why 16 and 32 are a deliberate second and third tap rather
-         * than where the key begins.
+         * One speed, not a set of gears. A second tap of a wind key used to step this to 16x and
+         * then 32x; that gesture skips a moment now, which is worth more — a wind at 8x crosses a
+         * moment in a second or two, and past roughly 8x speech stops being something you can
+         * navigate by, which is the entire point of hearing the tape while it winds.
          */
-        val WIND_SPEEDS = listOf(8f, 16f, 32f)
+        const val WIND_SPEED = 8f
     }
 
     /**
@@ -102,30 +102,18 @@ class Deck {
     }
 
     /**
-     * How fast a wind runs, as a multiple of playing speed. See [beginWind].
+     * How fast a wind runs, as a multiple of playing speed. See [WIND_SPEED].
      *
-     * Volatile for the same reason [transport] is: the audio thread multiplies by it every block.
+     * A property rather than a constant on [Transport] because the engine multiplies by it every
+     * block, and direction and speed are decided in different places — the transport says which
+     * way, this says how fast.
      */
-    @Volatile
-    var windSpeed: Float = WIND_SPEEDS.first()
-        private set
+    val windSpeed: Float get() = WIND_SPEED
 
-    /**
-     * Press and hold a wind key.
-     *
-     * [step] steps the speed up instead of starting again at the bottom, which is what a second tap
-     * of the same key means. Handed in rather than timed here, so the timing lives with the key that
-     * was tapped and this class stays free of a clock.
-     */
-    fun beginWind(back: Boolean, step: Boolean = false) = synchronized(lock) {
-        windSpeed = if (step) nextSpeed(windSpeed) else WIND_SPEEDS.first()
+    /** Press and hold a wind key. Release with [endWind]; a second tap is the controller's to spot. */
+    fun beginWind(back: Boolean) = synchronized(lock) {
         val to = if (back) Transport.Rewinding else Transport.FastForwarding
         transport = wind.begin(from = transport, wind = to)
-    }
-
-    private fun nextSpeed(from: Float): Float {
-        val at = WIND_SPEEDS.indexOfFirst { it >= from - 0.01f }
-        return WIND_SPEEDS[(at + 1).coerceAtMost(WIND_SPEEDS.lastIndex)]
     }
 
     /**

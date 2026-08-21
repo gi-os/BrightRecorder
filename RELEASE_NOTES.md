@@ -1,3 +1,35 @@
+## BrightRecorder v1.15 — The double tap actually skips
+
+**v1.14 said a second tap of a wind key skips a moment. It did not — the notes shipped and the
+wiring did not.** The deck grew `cancelWind` and the tests for it, but the controller was never
+touched: a second tap still ran the old 16x gear from v1.11, and nothing anywhere called the skip.
+So double-tapping fast-forward wound at 16x instead of jumping, which on a tape of short moments
+reads as the machine ignoring you — and looks exactly like the resume rule being broken again,
+which it was not.
+
+The wiring is in now, and it is the controller's four lines to own: a press that lands within the
+double-tap window of the *same* key's last release is a skip, not a wind. The head jumps — forward
+a moment on fast-forward, back on rewind — and the transport is not touched at all, because the
+first tap's wind already ended at its own release and put the tape back to whatever it was doing.
+Double-tap while playing and you land on the next moment still playing; the rule letting go obeys
+is the rule skipping obeys, exactly as v1.14 promised.
+
+Two smaller things fell out of doing it properly:
+
+- **The gears are actually gone.** `Deck` still carried the 16x/32x table and the step logic the
+  v1.14 notes said were removed. Winding is one speed, 8x, and the code now agrees with the notes.
+- **Tap-tap-tap hops a moment per tap.** The release after a skip found nothing winding and
+  returned before marking its time, so a third tap was measured against the wrong release and
+  started a wind instead of skipping again. The release marks time first now, whatever else it
+  finds to do.
+
+Fixes the mess reported today — double-tapping a wind key wound instead of skipping, in every
+build of v1.14.
+
+- 216 tests.
+
+---
+
 ## BrightRecorder v1.14 — Skip a moment, and rename one
 
 ### Renaming was unreachable, and so was deleting

@@ -333,19 +333,34 @@ object TapeController {
         val e = engine ?: return
         if (_state.value.isRecording || e.tape.isEmpty) return
         // A press that lands soon after the last release of the *same* key is a second tap, and a
-        // second tap steps the wind up a gear. Timed here rather than in [Deck] so the deck stays
-        // free of a clock, and per key so tapping rewind does not inherit fast-forward's gear.
+        // second tap skips a moment instead of winding again — forwards on fast-forward, back on
+        // rewind. Timed here rather than in [Deck] so the deck stays free of a clock, and per key
+        // so tapping rewind does not read fast-forward's last release as its own first tap.
         val now = System.nanoTime() / 1_000_000L
-        val step = back == lastWindBack && now - lastWindReleasedAt < DOUBLE_TAP_MS
+        val skip = back == lastWindBack && now - lastWindReleasedAt < DOUBLE_TAP_MS
         lastWindBack = back
-        deck.beginWind(back, step)
+        if (skip) {
+            // The first tap's wind ended at its own release and the transport already went back
+            // to whatever it was doing — the same rule letting go obeys — so only the head moves,
+            // and a double tap while playing lands on the next moment still playing. The cancel
+            // is a guard rather than a step: nothing should be winding here, and if something is,
+            // being left in a wind nobody is holding is the one outcome that must not happen.
+            deck.cancelWind()
+            e.skipClip(if (back) -1 else 1)
+            follow()
+            return
+        }
+        deck.beginWind(back)
         follow()
     }
 
     /** Let go of a wind key: back to whatever it interrupted. No exceptions; see [Deck]. */
     fun endWind() {
-        if (!deck.isWinding) return
+        // Recorded before the winding check, not after it: the release that follows a double
+        // tap's skip finds nothing winding, but it still marks time — a third tap within the
+        // window is another skip, so tap-tap-tap hops a moment per tap.
         lastWindReleasedAt = System.nanoTime() / 1_000_000L
+        if (!deck.isWinding) return
         deck.endWind()
         follow()
     }
