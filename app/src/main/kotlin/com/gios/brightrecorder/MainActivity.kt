@@ -38,6 +38,7 @@ import com.gios.brightrecorder.report.ReportContext
 import com.gios.brightrecorder.report.ReportOverlay
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.ui.ClipsScreen
+import com.gios.brightrecorder.ui.NameMomentSheet
 import com.gios.brightrecorder.ui.NowStrip
 import com.gios.brightrecorder.ui.TabBar
 import com.gios.brightrecorder.ui.TapeScreen
