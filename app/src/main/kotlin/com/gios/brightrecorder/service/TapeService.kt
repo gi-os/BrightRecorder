@@ -48,6 +48,7 @@ class TapeService : Service() {
     override fun onCreate() {
         super.onCreate()
         TapeController.attach(this)
+        TapeController.serviceIs(true)
         createChannel()
     }
 
@@ -83,6 +84,7 @@ class TapeService : Service() {
     }
 
     override fun onDestroy() {
+        TapeController.serviceIs(false)
         refreshJob?.cancel()
         abandonFocus()
         wakeLock?.takeIf { it.isHeld }?.release()

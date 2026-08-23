@@ -402,7 +402,12 @@ object TapeController {
         if (_state.value.isRecording || e.tape.isEmpty) return
         e.scrub.notch(direction, System.nanoTime() / 1_000_000L)
         e.start()
-        startService()
+        // Guarded, because this runs on every notch and the wheel delivers up to thirty a second.
+        // startService is an Intent plus a binder round trip, and every one of them reached
+        // onStartCommand -- which is a foreground promotion, a wake lock and, until 1.16.20, a
+        // fresh audio-focus request that took the focus off our own listener and stopped the tape.
+        // That is fixed at the other end now; this stops asking in the first place.
+        if (!serviceRunning) startService()
         startTicking()
     }
 
@@ -518,6 +523,23 @@ object TapeController {
     }
 
     /** Stop recording and file the clip. Returns it, or null if nothing was captured. */
+    /**
+     * The clip that recording just produced, waiting to be named.
+     *
+     * Cleared by whoever shows the prompt. A flow rather than a return value because stopping a
+     * recording is not always something the screen did — the notification's STOP button and the
+     * wheel both end one — and the prompt has to appear wherever you are when it does.
+     *
+     * Null while nothing is waiting, which is most of the time.
+     */
+    private val _justRecorded = MutableStateFlow<Clip?>(null)
+    val justRecorded: StateFlow<Clip?> = _justRecorded.asStateFlow()
+
+    /** The prompt was answered, one way or the other. */
+    fun clearJustRecorded() {
+        _justRecorded.value = null
+    }
+
     fun finishRecording(): Clip? {
         val r = recorder ?: return null
         if (!r.isRecording) return null
@@ -531,6 +553,11 @@ object TapeController {
         // what used to leave the clip called "Somewhere" for ever. See [nameWhenKnown].
         val provisional = clip != null && best?.fix != Fix.Named
         if (!provisional) locating?.cancel()
+
+        // Offer the name now, while you still remember what the thing was. The clip is already
+        // filed under its automatic name, so this is an offer and never a step: dismissing the
+        // prompt leaves exactly what would have been there without it.
+        _justRecorded.value = clip
 
         scope.launch {
             reload()
@@ -732,7 +759,9 @@ object TapeController {
      * answer into the engine, and lets the ticker publish.
      */
     private fun onRanOff(atStart: Boolean) {
-        deck.ranOff(atStart)
+        // Whether a hand is on the reel. See [Deck.ranOff] — a scrub that runs off the end is not
+        // the tape finishing, and treating it as one is what stopped playback under the wheel.
+        deck.ranOff(atStart, driven = engine?.scrub?.isActive == true)
         if (!atStart) engine?.seek(engine?.tape?.samples ?: 0L)
     }
 
@@ -793,6 +822,21 @@ object TapeController {
     }
 
     // ------------------------------------------------------------------- service
+
+    /**
+     * Whether [TapeService] is up.
+     *
+     * Set by the service in its own onCreate/onDestroy rather than guessed here, because the
+     * system can stop a foreground service without this class being told, and a flag that only
+     * this class wrote would then be stuck at true with nothing running.
+     */
+    @Volatile
+    private var serviceRunning = false
+
+    /** Called by [TapeService] as it comes up and goes down. */
+    fun serviceIs(running: Boolean) {
+        serviceRunning = running
+    }
 
     private fun startService() {
         val ctx = appContext ?: return

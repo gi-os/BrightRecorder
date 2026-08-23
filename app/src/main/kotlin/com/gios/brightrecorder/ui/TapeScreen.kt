@@ -2,6 +2,8 @@ package com.gios.brightrecorder.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -271,16 +274,37 @@ private fun TapePosition(state: TapeState) {
         )
         return
     }
+    val total = state.total.coerceAtLeast(1L)
     Canvas(
         Modifier
             .fillMaxWidth()
             .padding(horizontal = 24.dp)
-            .height(18.dp),
+            // Taller than it draws. The line and its ticks are 18dp of ink and that is right for
+            // reading at arm's length, but a target you put a thumb on has to be a target — 18dp
+            // is under half a finger and every drag would start by missing.
+            .height(36.dp)
+            .pointerInput(total) {
+                // Tap and drag are one gesture as far as this is concerned: both mean "put the
+                // head here". detectTapGestures is separate from the drag detector below because
+                // a drag never reports a plain tap, and a tap on a scrubber is the commonest way
+                // anyone uses one.
+                detectTapGestures { at -> seekToFraction(at.x / size.width, total) }
+            }
+            .pointerInput(total) {
+                detectHorizontalDragGestures(
+                    onDragStart = { at -> seekToFraction(at.x / size.width, total) },
+                    onHorizontalDrag = { change, _ ->
+                        // Consumed so the tab pager underneath does not read the same movement as
+                        // a swipe between screens and take the gesture away mid-scrub.
+                        change.consume()
+                        seekToFraction(change.position.x / size.width, total)
+                    },
+                )
+            },
     ) {
         val y = size.height / 2f
         drawLine(RuleGrey, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f)
 
-        val total = state.total.coerceAtLeast(1L)
         var at = 0L
         for (clip in state.clips) {
             at += clip.samples
@@ -288,9 +312,22 @@ private fun TapePosition(state: TapeState) {
             drawLine(Faint, Offset(x, y - 4f), Offset(x, y + 4f), strokeWidth = 2f)
         }
 
+        // The head, drawn tall enough to find with a thumb already on the screen.
         val hx = size.width * (state.position.toFloat() / total)
-        drawLine(Color.White, Offset(hx, 0f), Offset(hx, size.height), strokeWidth = 3f)
+        drawLine(Color.White, Offset(hx, y - 9f), Offset(hx, y + 9f), strokeWidth = 3f)
     }
+}
+
+/**
+ * Put the head at [fraction] of the way along the tape.
+ *
+ * Clamped rather than trusted: a drag that runs off either end of the bar reports a position
+ * outside it, and seeking past the end of the tape is how you get a head parked somewhere the
+ * transport has no way back from.
+ */
+private fun seekToFraction(fraction: Float, total: Long) {
+    val clamped = fraction.coerceIn(0f, 1f)
+    TapeController.seekTo((clamped * total).toLong().coerceIn(0L, total))
 }
 
 /**

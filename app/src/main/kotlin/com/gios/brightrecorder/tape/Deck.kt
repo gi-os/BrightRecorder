@@ -163,7 +163,7 @@ class Deck {
      * Called from the audio thread, so it does nothing but decide. Safe to call repeatedly with
      * the same answer, because the audio thread has no way of knowing it has already reported it.
      */
-    fun ranOff(atStart: Boolean) = synchronized(lock) {
+    fun ranOff(atStart: Boolean, driven: Boolean = false) = synchronized(lock) {
         // A wind that runs out of tape parks the reels and touches nothing else — either end, the
         // same answer. The latch is deliberately untouched: the key may still be down, and letting
         // go is the only thing allowed to decide where the tape goes next.
@@ -171,6 +171,16 @@ class Deck {
             transport = Transport.Stopped
             return@synchronized
         }
+        // **The wheel is not a transport, so it does not get to end one.** Same rule as the wind
+        // above and the same reason: a hand on the reel has spun the head off the end, which is
+        // not the tape playing to its finish. Ending playback here is what made spinning forward
+        // while listening stop the tape — you let go, the rate slid back to 1x, and there was
+        // nothing left running for it to slide back *into*.
+        //
+        // The head is parked at the end either way. Let go there and the next block is the tape
+        // itself arriving at the end with no hand on it, which falls through to the rule below and
+        // stops, exactly as it should.
+        if (driven) return@synchronized
         // Not winding, so this is the tape itself arriving at an end: playing to the finish, or the
         // wheel scrubbed into the wall. Playing to the finish stops, because it is finished. The
         // front is not an ending — the wheel never touched the transport, so playing carries on

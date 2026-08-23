@@ -243,6 +243,22 @@ private fun Root(onRecord: () -> Unit) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val labels = remember { listOf("TAPE", "MOMENTS", "SHELF") }
 
+    // **Above the tabs, not inside a screen.** A recording can be stopped from the notification or
+    // by holding the wheel, so the prompt has to appear wherever you happen to be — including on
+    // the shelf, or with the app coming back to the front after the phone was in a pocket.
+    val justRecorded by TapeController.justRecorded.collectAsStateWithLifecycle()
+    justRecorded?.let { clip ->
+        NameMomentSheet(
+            clip = clip,
+            onSkip = { TapeController.clearJustRecorded() },
+            onName = { name ->
+                TapeController.renameClip(clip, name)
+                TapeController.clearJustRecorded()
+            },
+        )
+        return
+    }
+
     // Whichever screen is up is the screen a crash report should name.
     ReportContext.screen = when (tab) {
         0 -> "tape"
