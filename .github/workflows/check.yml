@@ -19,6 +19,11 @@ concurrency:
   group: check-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+  # light-common is pulled from GitHub Packages, which has no anonymous read.
+  packages: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -32,12 +37,20 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Unit test the tape
+        env:
+          GPR_USER: ${{ secrets.GPR_USER }}
+          GPR_TOKEN: ${{ secrets.GPR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
       # assembleRelease rather than a bare compile: manifest merge and resource processing are
       # where a missing class or a permission that does not exist actually surface, and a Kotlin
       # compile never reaches either.
       - name: Build APKs
+        env:
+          GPR_USER: ${{ secrets.GPR_USER }}
+          GPR_TOKEN: ${{ secrets.GPR_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew :app:assembleDebug :app:assembleRelease --stacktrace
 
       # Cheap here and worth catching before main, where the same check gates the release.

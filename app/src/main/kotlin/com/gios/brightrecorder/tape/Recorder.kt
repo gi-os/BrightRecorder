@@ -65,7 +65,7 @@ class Recorder(private val dir: File) {
      * Set by the thread when the microphone fails, for the UI to report.
      *
      * A recording that silently does not happen is the worst outcome this app has, so the
-     * failure is surfaced rather than logged — [com.gios.brightrecorder.report.Trouble] puts it
+     * failure is surfaced rather than logged — [com.gios.light.common.report.Trouble] puts it
      * in front of the user with a button that files it.
      */
     @Volatile

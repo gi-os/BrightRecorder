@@ -8,7 +8,7 @@ import com.gios.brightrecorder.label.Label
 import com.gios.brightrecorder.place.Fix
 import com.gios.brightrecorder.place.Pending
 import com.gios.brightrecorder.place.Places
-import com.gios.brightrecorder.report.Trouble
+import com.gios.light.common.report.Trouble
 import com.gios.brightrecorder.tape.Clip
 import com.gios.brightrecorder.tape.Deck
 import com.gios.brightrecorder.tape.Library

@@ -36,6 +36,14 @@ fun BrightRecorderTheme(content: @Composable () -> Unit) {
             fontFamily = fam, fontSize = 16.sp, fontWeight = FontWeight.Medium,
             letterSpacing = 2.4.sp,
         ),
+        // **The chip reads this one**, and nothing else in the app did — so it was falling back to
+        // the Material 3 default, which is Roboto on the system family. One label in a different
+        // typeface from every other label is the tell that something was not written for this
+        // phone, and the chip is now the first thing a report shows anybody.
+        labelMedium = TextStyle(
+            fontFamily = fam, fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            letterSpacing = 1.5.sp,
+        ),
         labelSmall = TextStyle(
             fontFamily = fam, fontSize = 12.sp, fontWeight = FontWeight.Medium,
             letterSpacing = 1.5.sp,

@@ -33,12 +33,12 @@ import com.gios.brightrecorder.hw.LightKeys
 import com.gios.brightrecorder.hw.LocalWheelBus
 import com.gios.brightrecorder.hw.Press
 import com.gios.brightrecorder.hw.WheelBus
-import com.gios.brightrecorder.report.CrashLog
-import com.gios.brightrecorder.report.ReportContext
-import com.gios.brightrecorder.report.ReportOverlay
+import com.gios.light.common.report.LightReport
+import com.gios.light.common.report.ReportContext
+import com.gios.light.common.report.ReportOverlay
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.ui.ClipsScreen
-import com.gios.brightrecorder.ui.NameMomentSheet
+import com.gios.brightrecorder.ui.NameMomentStrip
 import com.gios.brightrecorder.ui.NowStrip
 import com.gios.brightrecorder.ui.TabBar
 import com.gios.brightrecorder.ui.TapeScreen
@@ -172,9 +172,17 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // First thing, before anything else can throw: the handler chains onto whatever is
-        // already installed and only writes a file, so it is safe this early.
-        CrashLog.install(this)
+        // First thing, before anything else can throw: install arms the crash handler, which
+        // chains onto whatever is already there and only writes a file, so it is safe this early.
+        //
+        // **One call, not two.** It used to be a bare CrashLog.install, and calling both would
+        // write the crash file twice per crash — install already does it.
+        LightReport.install(
+            context = this,
+            appName = "BrightRecorder",   // what the app is called on the phone, not the repo
+            label = "recorder",           // the triage label in light-reports
+            token = BuildConfig.REPORT_TOKEN,
+        )
         TapeController.attach(this)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -243,22 +251,9 @@ private fun Root(onRecord: () -> Unit) {
     val state by TapeController.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     val labels = remember { listOf("TAPE", "MOMENTS", "SHELF") }
-
-    // **Above the tabs, not inside a screen.** A recording can be stopped from the notification or
-    // by holding the wheel, so the prompt has to appear wherever you happen to be — including on
-    // the shelf, or with the app coming back to the front after the phone was in a pocket.
+    // Offered wherever you are, because a recording can also be stopped from the notification or
+    // by holding the wheel.
     val justRecorded by TapeController.justRecorded.collectAsStateWithLifecycle()
-    justRecorded?.let { clip ->
-        NameMomentSheet(
-            clip = clip,
-            onSkip = { TapeController.clearJustRecorded() },
-            onName = { name ->
-                TapeController.renameClip(clip, name)
-                TapeController.clearJustRecorded()
-            },
-        )
-        return
-    }
 
     // Whichever screen is up is the screen a crash report should name.
     ReportContext.screen = when (tab) {
@@ -283,6 +278,20 @@ private fun Root(onRecord: () -> Unit) {
         }
         // The transport strip only belongs where the transport is not already on screen.
         if (tab == 1) NowStrip(state)
+        // **A bar, not a screen.** You are at the thing you just recorded and the next moment
+        // worth recording is thirty seconds away, so every transport key stays reachable through
+        // this: press record again and it simply goes, with the clip filed under its automatic
+        // name. See NameMomentStrip.
+        justRecorded?.let { clip ->
+            NameMomentStrip(
+                clip = clip,
+                onSkip = { TapeController.clearJustRecorded() },
+                onName = { name ->
+                    TapeController.renameClip(clip, name)
+                    TapeController.clearJustRecorded()
+                },
+            )
+        }
         TabBar(selected = tab, labels = labels) { tab = it }
     }
 }
