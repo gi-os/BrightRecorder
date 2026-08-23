@@ -36,8 +36,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gios.brightrecorder.hw.WheelScroll
-import androidx.compose.ui.platform.LocalContext
-import com.gios.brightrecorder.share.Export
 import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.service.TapeState
 import com.gios.brightrecorder.tape.Clip
@@ -65,6 +63,7 @@ fun ClipsScreen(state: TapeState) {
 
     var pendingDelete by remember { mutableStateOf<Clip?>(null) }
     var renaming by remember { mutableStateOf<Clip?>(null) }
+    var sending by remember { mutableStateOf<Clip?>(null) }
 
     if (state.isEmpty) {
         Column(Modifier.fillMaxSize()) {
@@ -104,10 +103,26 @@ fun ClipsScreen(state: TapeState) {
         }
     }
 
+    sending?.let { clip ->
+        SendScreen(
+            clip = clip,
+            // The folder of the tape this clip is on, not whatever is loaded: a moment can be
+            // sent from a tape that is not on the machine, and currentDir() would then be some
+            // other tape's folder and the file would not be in it.
+            dir = state.tape?.let { TapeController.dirOf(it) } ?: TapeController.currentDir(),
+            onClose = { sending = null },
+        )
+        return
+    }
+
     renaming?.let { clip ->
         MomentSheet(
             clip = clip,
             onCancel = { renaming = null },
+            onSend = {
+                renaming = null
+                sending = clip
+            },
             onDelete = {
                 renaming = null
                 pendingDelete = clip
@@ -227,12 +242,11 @@ fun NowStrip(state: TapeState) {
 private fun MomentSheet(
     clip: Clip,
     onCancel: () -> Unit,
+    onSend: () -> Unit,
     onDelete: () -> Unit,
     onDone: (String) -> Unit,
 ) {
-    val context = LocalContext.current
     var text by remember { mutableStateOf(clip.place) }
-    var sending by remember { mutableStateOf<String?>(null) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
 
@@ -260,8 +274,7 @@ private fun MomentSheet(
         )
         Spacer(Modifier.height(6.dp))
         Text(
-            sending?.takeIf { it.isNotBlank() }
-                ?: "Recorded ${Naming.whenOnly(clip.startedAt)}. The time stays as it is — it is " +
+            "Recorded ${Naming.whenOnly(clip.startedAt)}. The time stays as it is — it is " +
                 "what keeps the tape in order.",
             style = MaterialTheme.typography.bodyMedium,
             color = Faint,
@@ -269,13 +282,12 @@ private fun MomentSheet(
         Spacer(Modifier.height(22.dp))
         Row(Modifier.fillMaxWidth()) {
             TransportKey(glyph = "BACK", modifier = Modifier.weight(1f), onClick = onCancel)
-            // Sending goes through the same rename sheet as everything else about a moment, because
-            // this is where you are when you have decided a particular recording is the one.
-            TransportKey(glyph = "SEND", modifier = Modifier.weight(1f)) {
-                val dir = TapeController.currentDir()
-                val sent = dir != null && Export.send(context, dir, clip)
-                sending = if (sent) "" else "Nothing on this phone can take a sound."
-            }
+            // Sending starts from the same sheet as everything else about a moment, because this
+            // is where you are when you have decided a particular recording is the one. It opens
+            // the picker rather than firing the intent: a share with no address lands in whichever
+            // conversation BrightChat had open, which is a recording going to somebody nobody
+            // chose.
+            TransportKey(glyph = "SEND", modifier = Modifier.weight(1f), onClick = onSend)
             TransportKey(glyph = "DELETE", modifier = Modifier.weight(1f), onClick = onDelete)
             TransportKey(
                 glyph = "SAVE",

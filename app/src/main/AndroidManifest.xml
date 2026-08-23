@@ -37,6 +37,17 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
     <!--
+      Sending a moment to a person rather than into whichever conversation happened to be open.
+      BrightChat reads the `address` extra, which is the AOSP messaging convention, and turning a
+      name into an address is the only thing this is for: the address book is read on this phone,
+      held in memory, and never written anywhere or sent anywhere.
+
+      Asked for at the picker rather than at launch. A recorder that wanted the address book on
+      first run would be a recorder asking why, and most recordings are never sent to anybody.
+    -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
+    <!--
       Roll's read-only list of the photographs you starred, so the picker can offer them on their
       own. Package visibility on API 30+ is opt-in, and without this the query silently returns
       nothing and the filter never appears. Named rather than a broad provider query, so this can

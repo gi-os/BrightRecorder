@@ -1,6 +1,7 @@
 package com.gios.brightrecorder
 
 import android.content.Context
+import com.gios.brightrecorder.send.Recipients
 
 /**
  * The little that has to survive being closed.
@@ -19,6 +20,7 @@ object Prefs {
     private const val FILE = "brightrecorder"
     private const val KEY_TAPE = "tape"
     private const val KEY_PLACE = "lastPlace"
+    private const val KEY_RECENTS = "recentRecipients"
 
     fun currentTape(context: Context): String? =
         sp(context).getString(KEY_TAPE, null)?.takeIf { it.isNotBlank() }
@@ -40,6 +42,28 @@ object Prefs {
         sp(context).edit().apply {
             if (dirName.isNullOrBlank()) remove(KEY_TAPE) else putString(KEY_TAPE, dirName)
         }.apply()
+    }
+
+    /**
+     * The last few people a moment was sent to, most recent first.
+     *
+     * Held as address keys rather than as contact ids: a contact id is local to one address-book
+     * database and does not survive a restore, so the list would empty itself after a phone swap.
+     * The same reasoning as storing a tape by its folder name rather than its position.
+     *
+     * Newline-joined rather than a `StringSet`, because a set has no order and the order is the
+     * entire content of this list.
+     */
+    fun recentRecipients(context: Context): List<String> =
+        sp(context).getString(KEY_RECENTS, null)
+            ?.split('\n')
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+
+    fun rememberRecipient(context: Context, key: String) {
+        if (key.isBlank()) return
+        val next = Recipients.remember(recentRecipients(context), key)
+        sp(context).edit().putString(KEY_RECENTS, next.joinToString("\n")).apply()
     }
 
     private fun sp(context: Context) =
