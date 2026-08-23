@@ -182,7 +182,29 @@ class TapeService : Service() {
 
     // ------------------------------------------------------------------ audio focus
 
+    /**
+     * Take audio focus, **once**.
+     *
+     * The early return is the whole of it, and leaving it out cost the fast-forward key.
+     *
+     * `follow()` calls `startService()` on every transport change, so `onStartCommand` runs again
+     * every time the tape starts, winds, or lands — and this used to build a *fresh*
+     * `AudioFocusRequest` with a fresh listener and re-request. Asking the system for focus you
+     * already hold, with a different request object, makes it deliver `AUDIOFOCUS_LOSS` to the
+     * previous listener. That listener stops the tape.
+     *
+     * So pressing fast-forward while playing started a wind, restarted the service, took our own
+     * focus away from ourselves, and stopped the transport a fraction of a second later --
+     * `deck.stop()` cancels the wind latch, which is correct for a real interruption and fatal
+     * here. On screen the counter said `8x -> PLAY` for one frame and then dropped back to the
+     * bare speed, because the latch it was reading had been thrown away. Letting go then found
+     * nothing winding and resumed nothing, which is the fault that has come back four times.
+     *
+     * One request for the life of the service. [abandonFocus] is the only thing that clears it,
+     * and a genuine loss -- a call, another app -- still stops the tape, which is what it is for.
+     */
     private fun requestFocus() {
+        if (focusRequest != null) return
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val attrs = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -194,7 +216,11 @@ class TapeService : Service() {
             .setOnAudioFocusChangeListener { change ->
                 // Losing focus outright stops playback, but never a recording: whatever took the
                 // focus wants the speaker, and a recording is not using it.
+                // A loss delivered after we let the request go is not ours to act on -- it is
+                // the tail of a request that no longer exists, and acting on it would stop a tape
+                // somebody has since started again.
                 if (change == AudioManager.AUDIOFOCUS_LOSS &&
+                    focusRequest != null &&
                     !TapeController.state.value.isRecording
                 ) {
                     TapeController.stop()
