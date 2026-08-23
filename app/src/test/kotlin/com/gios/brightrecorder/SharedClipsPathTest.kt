@@ -28,9 +28,17 @@ class SharedClipsPathTest {
         f.readText()
     }
 
-    /** The `path` attribute of the one `<files-path>` element, without its trailing slash. */
+    /**
+     * The `path` attribute of the one `<files-path>` element, without its trailing slash.
+     *
+     * Comments are stripped first, and that is not hypothetical tidiness: the comment in
+     * `shared_clips.xml` explains why the path is named by quoting the alternative it rejects —
+     * `<files-path path="." />` — and this read that quotation instead of the real element on its
+     * first run, which made the test fail against a file that was already correct.
+     */
     private val declaredPath: String by lazy {
-        val match = Regex("""<files-path[^>]*\bpath\s*=\s*"([^"]*)"""").find(xml)
+        val body = xml.replace(Regex("""<!--.*?-->""", RegexOption.DOT_MATCHES_ALL), "")
+        val match = Regex("""<files-path[^>]*\bpath\s*=\s*"([^"]*)"""").find(body)
         requireNotNull(match) { "no <files-path path=...> in shared_clips.xml" }
             .groupValues[1]
             .trim()
