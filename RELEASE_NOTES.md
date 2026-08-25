@@ -1,3 +1,25 @@
+## BrightRecorder v1.17 — the notebook can see what you recorded
+
+**A provider for a day's clips.** BrightNotebook draws a day out of what the other apps know about
+it — where you were, what you played, who you talked to — and a recording was the one kind of
+evidence it would most obviously want and could not see. Tapes live in this app's `filesDir`, which
+nothing outside this process can read, so a bridge was the only way.
+
+`content://com.gios.brightrecorder.clips/clips/2026-08-25` answers with a row per clip that started
+that day: when it started, how long it ran, the place you typed on it, and which tape it is on.
+Calendar dates, not journal days — this app has no opinion about where a day begins, and the caller
+does, so it asks for both dates and filters. Nothing is sorted here either, for the same reason: the
+caller places these on an axis of its own.
+
+`.../clip/<tape>/<file>` opens one clip read-only, so anything that wants to play a recording can
+without a copy of it or a storage permission. Both segments are matched against the real directory
+listing rather than joined onto a path — a name is a string that arrived from another process, and
+`../` is a string too.
+
+Nothing is writable, and there is no permission on it, which is the same call the collection's other
+bridges make: what this reveals is that a recording happened, when, how long, and whatever place
+name you gave it, on a phone with one user and a hand-picked set of apps.
+
 ## BrightRecorder v1.16 — Letting go of fast-forward finally plays
 
 **The reported fault, in its exact words: press play, fast-forward, let go — and it just stays

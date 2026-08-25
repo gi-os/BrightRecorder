@@ -105,6 +105,19 @@
             `grantUriPermissions` is what makes that work at all, and the paths it may serve are
             listed in `shared_clips.xml` rather than being the whole directory.
         -->
+        <!--
+          What was recorded on a day, for BrightNotebook's timeline. Tapes live in this app's
+          filesDir, so a provider is the only way across the boundary; the same day the notebook
+          draws out of where you were and what you played can now say that you recorded something
+          at half past two and how long it ran. Exported with no permission, like the collection's
+          other bridges — see share/ClipsProvider.kt for why, and for the two path checks that
+          stop a filename from another process naming anything but a clip.
+        -->
+        <provider
+            android:name=".share.ClipsProvider"
+            android:authorities="com.gios.brightrecorder.clips"
+            android:exported="true" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.clips"
