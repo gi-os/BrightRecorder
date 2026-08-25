@@ -1,3 +1,35 @@
+## BrightRecorder v1.18 — a recording on the day is a way back to the recording
+
+**Tapping a clip in BrightNotebook opens it here, cued.** v1.17 gave the notebook a provider, so a
+day could say you recorded something at 14:32 and how long it ran. That row was a dead end: the one
+thing you want from it is the recording, and the recording lives in this app. It opens here now, on
+the tape the clip is on, with the head parked at its first sample and the moments list scrolled to
+it.
+
+**Nothing plays.** Same rule as tapping a row inside this app — on a greyscale panel with nothing
+plugged in, a tap that suddenly makes noise is a tap people learn not to make, and a tap that came
+from another app is no different. Press play, or the wheel.
+
+**The link is two names, not a file.** `brightrecorder://clip` takes the tape directory and the file
+name the provider already handed out. Those name a clip without granting anything, they survive this
+app being killed, and they are what the library looks clips up by — a `content://` URI would be a
+read grant on a WAV, which is enough to play the audio somewhere else and not enough to open the
+machine at it. Both names are checked as single path segments on the way in and then matched against
+the real directory listing, never joined onto a path, so nothing arriving from another process can
+name anything but a clip. The filter is not `BROWSABLE`: this is an app-to-app link, and a scheme a
+web page can open is a scheme a web page can drive.
+
+**Two smaller things fell out of it.** The activity is `singleTask` now, so a second tap in the
+notebook re-cues the machine instead of stacking a second recorder on top of the first — two views
+of one tape transport, with the one underneath still drawing a counter for a machine it no longer
+drives. And the moments list scrolls to wherever the head is parked whenever the tape is stopped,
+which is what makes a cue visible; it deliberately does not while the tape is running, because the
+head advances clip by clip and a list that jumped on each one takes the tape away from you.
+
+**A cue that arrives before the shelf is read is held, not lost.** A deep link lands in `onCreate`,
+and at a cold start the migration, the orphan recovery and the first scan have not finished — there
+is no tape on the machine yet. The cue waits for the shelf and is applied the moment it is ready.
+
 ## BrightRecorder v1.17 — the notebook can see what you recorded
 
 **A provider for a day's clips.** BrightNotebook draws a day out of what the other apps know about

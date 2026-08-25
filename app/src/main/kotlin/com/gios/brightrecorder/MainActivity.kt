@@ -1,6 +1,7 @@
 package com.gios.brightrecorder
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +39,7 @@ import com.gios.light.common.report.LightReport
 import com.gios.light.common.report.ReportContext
 import com.gios.light.common.report.ReportOverlay
 import com.gios.brightrecorder.service.TapeController
+import com.gios.brightrecorder.share.ClipLink
 import com.gios.brightrecorder.ui.ClipsScreen
 import com.gios.brightrecorder.ui.NameMomentStrip
 import com.gios.brightrecorder.ui.NowStrip
@@ -184,6 +187,7 @@ class MainActivity : ComponentActivity() {
             token = BuildConfig.REPORT_TOKEN,
         )
         TapeController.attach(this)
+        cueFrom(intent)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             !has(Manifest.permission.POST_NOTIFICATIONS)
@@ -242,6 +246,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * A second link while the app is already up.
+     *
+     * The activity is `singleTask`, so tapping a second recording in the notebook does not build a
+     * second recorder on top of the first — it arrives here instead. Without this the machine
+     * stayed cued to whatever the first link asked for, and the second tap looked like it had done
+     * nothing at all.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        cueFrom(intent)
+    }
+
+    /**
+     * Hand a `brightrecorder://clip` link to the machine, if that is what this is.
+     *
+     * Anything else — the launcher, the notification — is silently not a cue, which is why this
+     * reads rather than validates: an app opened from its own icon has no clip in mind.
+     */
+    private fun cueFrom(intent: Intent?) {
+        ClipLink.parse(intent)?.let { TapeController.cue(it) }
+    }
+
     private fun has(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
 }
@@ -254,6 +282,17 @@ private fun Root(onRecord: () -> Unit) {
     // Offered wherever you are, because a recording can also be stopped from the notification or
     // by holding the wheel.
     val justRecorded by TapeController.justRecorded.collectAsStateWithLifecycle()
+
+    // A link from another app parks the head on a clip; this is the half of that which is a
+    // screen. The tab moves rather than the list scrolling under a title that says TAPE, because
+    // the answer to "show me that recording" is the moments list with it selected.
+    val cued by TapeController.cued.collectAsStateWithLifecycle()
+    LaunchedEffect(cued) {
+        if (cued != null) {
+            tab = 1
+            TapeController.clearCued()
+        }
+    }
 
     // Whichever screen is up is the screen a crash report should name.
     ReportContext.screen = when (tab) {

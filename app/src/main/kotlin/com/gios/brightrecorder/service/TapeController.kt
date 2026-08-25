@@ -9,6 +9,7 @@ import com.gios.brightrecorder.place.Fix
 import com.gios.brightrecorder.place.Pending
 import com.gios.brightrecorder.place.Places
 import com.gios.light.common.report.Trouble
+import com.gios.brightrecorder.share.ClipLink
 import com.gios.brightrecorder.tape.Clip
 import com.gios.brightrecorder.tape.Deck
 import com.gios.brightrecorder.tape.Library
@@ -164,6 +165,8 @@ object TapeController {
             val wanted = Prefs.currentTape(app)
             val tape = onShelf.firstOrNull { it.dirName == wanted } ?: onShelf.first()
             openTape(tape)
+            // A deep link that arrived before any of this had run. See [pendingCue].
+            consumeCue()
         }
     }
 
@@ -427,6 +430,71 @@ object TapeController {
         if (index < 0) return
         e.seek(e.tape.startOf(index))
         publish()
+    }
+
+    // ------------------------------------------------------------------ arriving at a clip
+
+    /**
+     * A clip somebody else asked for, waiting for the shelf to be ready.
+     *
+     * **Held rather than applied.** A deep link arrives in `onCreate`, and at a cold start the
+     * shelf has not been read yet: [attach] does the migration, the orphan recovery and the first
+     * scan on a background coroutine, and there is no tape on the machine until that finishes. A
+     * cue applied straight away would look up a tape on an empty shelf, find nothing, and open the
+     * app on whatever the last tape was — the failure being invisible is what makes it worth
+     * describing here.
+     */
+    private var pendingCue: ClipLink.Target? = null
+
+    /**
+     * The clip a link asked for, once the head is actually parked at it. Null until then and again
+     * once the UI has read it, like [justRecorded] and for the same reason: it is a one-shot
+     * instruction to a screen, not a piece of state a screen can derive.
+     */
+    private val _cued = MutableStateFlow<Clip?>(null)
+    val cued: StateFlow<Clip?> = _cued.asStateFlow()
+
+    /** The cue was acted on — the moments list is up and pointing at it. */
+    fun clearCued() {
+        _cued.value = null
+    }
+
+    /**
+     * Put the machine on a tape and park the head at one clip, named the way the shelf names it.
+     *
+     * What BrightNotebook's timeline rows call: the day says you recorded something at 14:32, and
+     * this is what makes that row a way back to the recording rather than a fact about the past.
+     * Nothing plays — the tape is cued, exactly as tapping the row inside this app cues it. A tap
+     * that suddenly makes noise is a tap people learn not to make, and that is no less true when
+     * the tap happened in another app.
+     */
+    fun cue(target: ClipLink.Target) {
+        pendingCue = target
+        scope.launch { consumeCue() }
+    }
+
+    /**
+     * Resolve the held cue against the real shelf, or leave it held if the shelf is not up yet.
+     *
+     * Refused while recording, for the reason [openTape] is: the recording in progress belongs to
+     * the tape it was started on. The cue is dropped rather than queued in that case — by the time
+     * you have finished recording, the tap that asked for this is long over.
+     */
+    private fun consumeCue() {
+        val target = pendingCue ?: return
+        val shelf = root ?: return
+        if (_state.value.isRecording) {
+            pendingCue = null
+            return
+        }
+        pendingCue = null
+        // Matched against the directory listing, never built from the string: the names came from
+        // another process. Same rule as ClipsProvider, which is where they were handed out.
+        val tape = Tapes.list(shelf).firstOrNull { it.dirName == target.tapeDir } ?: return
+        if (current?.dirName != tape.dirName) openTape(tape)
+        val clip = engine?.tape?.clips?.firstOrNull { it.fileName == target.fileName } ?: return
+        seekToClip(clip)
+        _cued.value = clip
     }
 
 

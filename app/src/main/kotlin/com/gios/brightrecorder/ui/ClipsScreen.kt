@@ -41,6 +41,7 @@ import com.gios.brightrecorder.service.TapeState
 import com.gios.brightrecorder.tape.Clip
 import com.gios.brightrecorder.tape.Naming
 import com.gios.brightrecorder.tape.SAMPLES_PER_SECOND
+import com.gios.brightrecorder.tape.Transport
 import com.gios.brightrecorder.ui.theme.Dim
 import com.gios.brightrecorder.ui.theme.Faint
 
@@ -77,6 +78,19 @@ fun ClipsScreen(state: TapeState) {
     }
 
     val here = state.clip
+
+    // Scroll to wherever the head is parked, but only while the tape is stopped.
+    //
+    // For a link from BrightNotebook this is the last step of "show me that recording": the cue
+    // moves the head and switches to this tab, and a selected row twenty rows below the fold is
+    // not shown. The transport check is what keeps it from fighting playback — the head advances
+    // clip by clip while the tape runs, and a list that jumped on every one of those would take
+    // the tape away from anybody reading it.
+    LaunchedEffect(here?.fileName, state.transport) {
+        if (state.transport == Transport.Playing) return@LaunchedEffect
+        val index = state.clips.indexOfFirst { it.fileName == here?.fileName }
+        if (index >= 0) runCatching { listState.animateScrollToItem(index) }
+    }
 
     Column(Modifier.fillMaxSize()) {
         ScreenTitle(

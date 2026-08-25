@@ -72,14 +72,34 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.BrightRecorder">
 
+        <!--
+          singleTask, because of the deep link below and because of the service. Two recorders in
+          one task would be two views of one tape transport, and the one underneath would go on
+          drawing a counter for a machine it no longer drives.
+        -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.BrightRecorder">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!--
+              A way back to one recording: the brightrecorder scheme, host clip, with tape and file query parameters.
+              BrightNotebook draws a row for every clip on a day out of ClipsProvider, and this is
+              what makes that row openable — the tape goes on the machine and the head parks at the
+              clip. See share/ClipLink.kt, which is also where the names are checked.
+
+              BROWSABLE is deliberately absent. This is an app-to-app link, not a web one, and a
+              scheme a page could open is a scheme a page can drive.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="brightrecorder" android:host="clip" />
             </intent-filter>
         </activity>
 
