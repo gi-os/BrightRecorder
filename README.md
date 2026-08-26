@@ -1,3 +1,5 @@
+<img src="docs/icon.png" alt="" width="72" align="left" />
+
 # BrightRecorder
 
 A tape recorder for the **Light Phone III**. Record a moment, and it becomes a clip
