@@ -2,6 +2,8 @@
 
 # BrightRecorder
 
+[**⬇ Download the latest APK**](https://github.com/gi-os/BrightRecorder/releases/latest) · free, open source.
+
 A tape recorder for the **Light Phone III**. Record a moment, and it becomes a clip
 named for where you were and when. Wind through the whole lot with the brightness
 wheel, forwards or backwards — and hear it as you wind, the way a tape machine lets
