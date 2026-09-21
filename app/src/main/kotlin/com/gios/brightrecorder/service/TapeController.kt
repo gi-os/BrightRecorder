@@ -209,7 +209,7 @@ object TapeController {
         val shelf = root ?: return
         if (_state.value.isRecording) return
         scope.launch {
-            val made = Tapes.create(shelf, name, System.currentTimeMillis()) ?: return@launch
+            val made = Tapes.create(shelf, Naming.titleCase(name), System.currentTimeMillis()) ?: return@launch
             openTape(made)
         }
     }
@@ -217,7 +217,7 @@ object TapeController {
     fun renameTape(tape: Tape, name: String) {
         val shelf = root ?: return
         scope.launch {
-            val renamed = Tapes.rename(shelf, tape, name) ?: return@launch
+            val renamed = Tapes.rename(shelf, tape, Naming.titleCase(name)) ?: return@launch
             // The folder moved, so anything holding the old one is stale — including this tape if
             // it is the one on the machine.
             if (tape.dirName == current?.dirName) openTape(renamed) else refreshShelf()
@@ -789,11 +789,30 @@ object TapeController {
     fun renameClip(clip: Clip, place: String) {
         val d = dir ?: return
         if (place.isBlank()) return
+        val name = Naming.titleCase(place)
+        // A name you typed is the name you will most likely want next: moments come in runs — a
+        // lecture, a rehearsal, a walk — and typing "Rehearsal" nine times on this keyboard is not
+        // a filing system. So it becomes the preset the naming strip opens with. See [presetName].
+        appContext?.let { Prefs.setPresetName(it, name) }
         scope.launch {
             Pending.remove(d, clip.fileName)
-            if (Library.rename(d, clip, place) == null) return@launch
+            if (Library.rename(d, clip, name) == null) return@launch
             reload()
         }
+    }
+
+    /**
+     * The name the naming strip opens with: the last one typed, until it is deleted.
+     *
+     * Null when there is none, which is the state before anyone has named a moment and the state
+     * after one Backspace on the prefilled strip. Deleting it there is the only way it goes — a
+     * new recording, a new tape and a restart all leave it standing, because a run of moments
+     * outlives all three.
+     */
+    fun presetName(): String? = appContext?.let { Prefs.presetName(it) }
+
+    fun clearPresetName() {
+        appContext?.let { Prefs.setPresetName(it, null) }
     }
 
     fun toggleRecord() {

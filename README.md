@@ -230,9 +230,9 @@ crawl is smooth instead of a staircase.
 
 ## Names
 
-A clip is named for where and when it was recorded, and nothing else. No renaming, no
-tags, no "Recording 14" — the two things you remember about a moment are where you were
-and roughly when, so that is the whole filing system.
+A clip is named for where and when it was recorded, unless you name it yourself. No tags,
+no "Recording 14" — the two things you remember about a moment are where you were and
+roughly when, so that is the whole filing system.
 
 On disk the timestamp leads, because the directory has to sort chronologically for the
 tape to be in order:
@@ -294,6 +294,35 @@ One limit worth knowing: Android's `Geocoder` is a reverse geocoder, not a place
 it names what is *at* the fix rather than what is interesting nearby. A café comes back when
 the fix lands on it. Naming the nearest notable thing would mean the Places API — a key, an
 account, and a billable lookup per recording — which is a different app from this one.
+
+### The phone with no geocoder
+
+Android's `Geocoder` is not part of Android. It is a client for a service that Google Play Services
+provides, and the Light Phone III has no Play Services. So `Geocoder.isPresent()` is false, every
+lookup comes back empty, and the chain above fell straight to its floor. That is how every clip
+recorded on the phone this app was written for came to be called `United States`. The phone found
+its position each time. It had nobody to ask what the place was called.
+
+So there are two geocoders. Android's goes first where it exists. Where it does not, the app asks
+OpenStreetMap's Nominatim over plain HTTPS: no key, no account, one small request a recording, and a
+`User-Agent` that names the app, which is all OSM asks in return. The answer has the same shape,
+`Lower East Side, New York` or `Trastevere, Rome`, with one difference. It **never names a street**.
+The app holds coarse location and nothing finer, and a coarse position is wrong by up to two
+kilometers on purpose. A street read off it is some street two kilometers away, written with a
+street's confidence. A neighborhood is true of the whole two kilometers. OSM's "City of New York"
+loses its "City of" on the way, because nobody says it.
+
+### Names you type
+
+You can name a moment by hand. The strip after a recording asks *what was that?*, and a hold on a
+clip opens the same field. A typed name is your name for the thing, not a guess, so nothing renames
+it later. Every word gets a capital (`trip to rome` becomes `Trip To Rome`) and the rest of each word
+stays as typed, so `NYC` survives. **The last name you typed is the next one's preset.** Moments come
+in runs, and typing `Rehearsal` nine times on this keyboard is not a filing system. The strip opens
+with the name already in the field, and one press files the clip under it. Type onto the end and it
+stays (`Rehearsal Act 2`). **One Backspace clears the whole field** and forgets the preset. The strip
+is then back to the empty field with the place behind it. The preset survives a restart and a change
+of tape, because a run of moments does too.
 
 ## Loudness
 
@@ -464,6 +493,7 @@ rising whine after ten.
 
 | Version | What changed |
 |---|---|
+| v1.19 | Clips on the Light Phone are no longer all called "United States". Android's `Geocoder` is a Google Play service the phone does not have, so the app asks OpenStreetMap's Nominatim instead: neighborhood and city, never a street, because the position is coarse. Typed names get a capital on every word, the last one typed is the next moment's preset, and one Backspace clears it. |
 | v1.16.18 | Letting go of fast-forward while playing plays. The wind reaches the end of the tape almost every time, and resuming into play with the head parked there stopped inside the first audio block — so letting go now moves the head to the start, the same answer the play key has always given a parked head. |
 | v1.15.17 | Double-tapping a wind key now actually skips a moment — v1.14 shipped the notes without the wiring, so a second tap still ran the old 16x gear. The gears are gone from the code as well as the notes, and tap-tap-tap hops a moment per tap. |
 | v1.14.16 | Holding a moment opens it — the gesture was on the container and the row's own tap handler ate it, so renaming and deleting were both unreachable. Double-tapping a wind key skips a moment, which replaces the 16x/32x gears. |

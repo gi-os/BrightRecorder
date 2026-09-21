@@ -17,6 +17,10 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.gios.brightrecorder.BuildConfig
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 import kotlin.coroutines.resume
 
@@ -256,14 +260,55 @@ class Places(private val context: Context) {
         return describe(fix)
     }
 
-    /** The best human name for [fix], or null if the geocoder has nothing. */
+    /**
+     * The best human name for [fix], or null if nobody has one.
+     *
+     * Two geocoders, asked in turn. Android's own first, where there is one — it is a client for a
+     * Google Play service, so on a phone with Play Services it answers in a few hundred
+     * milliseconds. On a phone without — the Light Phone III — `isPresent()` is false and it is
+     * skipped without a request, and [Nominatim] is asked instead. Before that second geocoder
+     * existed this returned null on every lookup on that phone, and every clip fell through to the
+     * country: see the note on [Nominatim].
+     */
     private suspend fun describe(fix: Location): String? {
-        if (!Geocoder.isPresent()) return null
-        val geocoder = Geocoder(context, Locale.getDefault())
-        val addresses = runCatching {
-            withTimeout(BUDGET_MS) { geocode(geocoder, fix) }
-        }.getOrNull() ?: return null
-        return addresses.firstNotNullOfOrNull { name(it) }
+        if (Geocoder.isPresent()) {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            val addresses = runCatching {
+                withTimeout(BUDGET_MS) { geocode(geocoder, fix) }
+            }.getOrNull()
+            addresses?.firstNotNullOfOrNull { name(it) }?.let { return it }
+        }
+        return runCatching { withTimeout(BUDGET_MS) { fetch(fix) } }.getOrNull()
+    }
+
+    /**
+     * One request to Nominatim, on IO, answered as a name or null.
+     *
+     * Plain `HttpURLConnection`: one small GET a recording, which is not worth a client library.
+     * The `User-Agent` is the whole of what OSM asks in return for a keyless service — it has to
+     * say which app is asking — and an answer that is not a 200, not JSON, or names nothing is
+     * simply null, because a failed lookup costs the clip its place name and nothing else.
+     */
+    private suspend fun fetch(fix: Location): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = URL(Nominatim.HOST + Nominatim.path(fix.latitude, fix.longitude))
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = NET_TIMEOUT_MS
+                readTimeout = NET_TIMEOUT_MS
+                setRequestProperty("User-Agent", USER_AGENT)
+                setRequestProperty("Accept", "application/json")
+            }
+            try {
+                if (conn.responseCode != HttpURLConnection.HTTP_OK) return@runCatching null
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val address = JSONObject(body).optJSONObject("address") ?: return@runCatching null
+                val parts = HashMap<String, String>()
+                for (key in address.keys()) parts[key] = address.optString(key)
+                Nominatim.name(parts)
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrNull()
     }
 
     private suspend fun geocode(geocoder: Geocoder, fix: Location): List<Address> =
@@ -352,5 +397,11 @@ class Places(private val context: Context) {
         const val STALE_MS = 5 * 60 * 1000L
 
         const val MAX_RESULTS = 3
+
+        /** One HTTP round trip to Nominatim. Well inside [BUDGET_MS], which bounds the whole lookup. */
+        const val NET_TIMEOUT_MS = 8_000
+
+        /** Who is asking. OSM's one condition for a keyless geocoder, and a link back to the source. */
+        val USER_AGENT = "BrightRecorder/${BuildConfig.VERSION_NAME} (https://github.com/gi-os/BrightRecorder)"
     }
 }

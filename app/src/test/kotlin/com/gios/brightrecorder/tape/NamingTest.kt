@@ -122,4 +122,27 @@ class NamingTest {
         val name = Naming.fileName(Naming.NOWHERE, at(2026, 8, 17, 2, 14), utc)
         assertEquals(Naming.NOWHERE, Naming.parse(name)?.place)
     }
+
+    // ---------------------------------------------------------------- typed names
+
+    @Test
+    fun `a typed name gets a capital on every word`() {
+        assertEquals("Trip To Rome", Naming.titleCase("trip to rome"))
+        assertEquals("Ada's First Word", Naming.titleCase("ada's first word"))
+    }
+
+    /** Only the first letter is touched: "NYC" stays "NYC" and "iPhone" is not made "Iphone". */
+    @Test
+    fun `the rest of a word is left as typed`() {
+        assertEquals("NYC Walk", Naming.titleCase("NYC walk"))
+        assertEquals("Rehearsal Act 2", Naming.titleCase("rehearsal act 2"))
+        assertEquals("Saint-germain", Naming.titleCase("saint-germain"))
+    }
+
+    @Test
+    fun `spacing and empty input survive`() {
+        assertEquals("", Naming.titleCase(""))
+        assertEquals("A  B", Naming.titleCase("a  b"))
+        assertEquals(" Lead", Naming.titleCase(" lead"))
+    }
 }

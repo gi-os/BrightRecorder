@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.gios.brightrecorder.service.TapeController
 import com.gios.brightrecorder.tape.Clip
 import com.gios.brightrecorder.ui.theme.Dim
 import com.gios.brightrecorder.ui.theme.Faint
@@ -48,10 +49,24 @@ import com.gios.brightrecorder.ui.theme.Faint
  * The field is empty rather than pre-filled with the guess. Pre-filling makes the automatic name
  * look like something to delete before you can type, which is friction on the one path that
  * should be free; the guess is named in the placeholder instead, so skipping is a choice.
+ *
+ * ### The one thing it is pre-filled with
+ *
+ * The last name you typed. Moments come in runs — nine clips from one rehearsal — and this
+ * keyboard makes typing "Rehearsal" nine times the most expensive thing in the app. So once a
+ * moment has been named, the strip opens with that name already in it, and the key reads NAME:
+ * one press files the clip under it. It stays until you delete it, and deleting it is **one**
+ * Backspace, not one per letter: the first deletion on a pre-filled name empties the field and
+ * forgets the preset, and the strip is back to the empty field with the guess behind it. Typing
+ * onto the end of the preset keeps it, which is how "Rehearsal" becomes "Rehearsal Act 2".
  */
 @Composable
 fun NameMomentStrip(clip: Clip, onSkip: () -> Unit, onName: (String) -> Unit) {
-    var text by remember(clip.fileName) { mutableStateOf("") }
+    val preset = remember(clip.fileName) { TapeController.presetName() }
+    var text by remember(clip.fileName) { mutableStateOf(preset ?: "") }
+    // True until the first edit. The first edit is what decides between "clear it all" and
+    // "keep typing".
+    var untouched by remember(clip.fileName) { mutableStateOf(preset != null) }
 
     // Deliberately no focusRequester. Opening the keyboard would cover the transport again and
     // undo the whole point of the strip — you tap the field if you want to type, and until you
@@ -69,7 +84,16 @@ fun NameMomentStrip(clip: Clip, onSkip: () -> Unit, onName: (String) -> Unit) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             BasicTextField(
                 value = text,
-                onValueChange = { text = it.take(60) },
+                onValueChange = { typed ->
+                    if (untouched && typed.length < text.length) {
+                        // One Backspace on a preset takes the whole thing, and the preset with it.
+                        text = ""
+                        TapeController.clearPresetName()
+                    } else {
+                        text = typed.take(60)
+                    }
+                    untouched = false
+                },
                 singleLine = true,
                 textStyle = MaterialTheme.typography.bodyLarge.copy(color = Color.White),
                 cursorBrush = SolidColor(Color.White),

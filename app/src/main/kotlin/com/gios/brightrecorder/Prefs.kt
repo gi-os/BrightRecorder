@@ -6,7 +6,8 @@ import com.gios.brightrecorder.send.Recipients
 /**
  * The little that has to survive being closed.
  *
- * Only which tape is on the machine. Everything else the app knows is on disk already, in the
+ * Which tape is on the machine, the last place found, the last people sent to, and the last name
+ * typed for a moment. Everything else the app knows is on disk already, in the
  * names of folders and files, which is the whole filing system — there is no state worth storing
  * about a clip that its own name does not already carry.
  *
@@ -21,6 +22,7 @@ object Prefs {
     private const val KEY_TAPE = "tape"
     private const val KEY_PLACE = "lastPlace"
     private const val KEY_RECENTS = "recentRecipients"
+    private const val KEY_PRESET = "presetName"
 
     fun currentTape(context: Context): String? =
         sp(context).getString(KEY_TAPE, null)?.takeIf { it.isNotBlank() }
@@ -36,6 +38,21 @@ object Prefs {
 
     fun setLastPlace(context: Context, place: String) {
         sp(context).edit().putString(KEY_PLACE, place).apply()
+    }
+
+    /**
+     * The last name typed for a moment, offered as the next one's. See `TapeController.presetName`.
+     *
+     * Stored rather than held in memory because a run of moments — a day of interviews, say —
+     * outlives the process many times over, and the whole point is not typing the name again.
+     */
+    fun presetName(context: Context): String? =
+        sp(context).getString(KEY_PRESET, null)?.takeIf { it.isNotBlank() }
+
+    fun setPresetName(context: Context, name: String?) {
+        sp(context).edit().apply {
+            if (name.isNullOrBlank()) remove(KEY_PRESET) else putString(KEY_PRESET, name)
+        }.apply()
     }
 
     fun setCurrentTape(context: Context, dirName: String?) {

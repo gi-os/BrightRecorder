@@ -1,3 +1,36 @@
+## BrightRecorder v1.19 — the phone had a position and nobody to ask
+
+**Every clip on the Light Phone was called "United States".** The phone knew where it was. It had
+nobody to ask what the place was called. Android's `Geocoder` is not part of Android. It is a client
+for a service that Google Play Services provides, and the Light Phone III has none. So
+`Geocoder.isPresent()` answered false, every lookup came back empty, and the naming chain fell to its
+floor: the mobile network's country. The floor did its job. Nothing stood above it on this phone.
+
+**A second geocoder, for the phone that has none.** Android's own still goes first where it exists.
+Where it does not, the app asks OpenStreetMap's Nominatim over plain HTTPS. No key. No account. One
+small request per recording, with a `User-Agent` that names the app, which is all OSM asks in return.
+The answer has the shape this app has always used: `Lower East Side, New York`, `Trastevere, Rome`,
+then the state, then the country, never `Somewhere`. OSM calls New York "City of New York". The
+"City of" goes, because nobody says it. The work queue uses the same lookup, so a clip filed under a
+country while offline gets its real name the next time the app opens with signal.
+
+**It never names a street.** The app holds coarse location and nothing finer. A coarse position is
+wrong by up to two kilometers on purpose. A street read off it is some street two kilometers from
+where you stood, written with a street's confidence. A neighborhood is true of the whole two
+kilometers, and it is how a person says where they were. The naming stops there.
+
+**Typed names get a capital on every word.** `trip to rome` becomes `Trip To Rome`. Only the first
+letter of each word changes, so `NYC` stays `NYC`. This applies to moments and to tapes.
+
+**The last name you typed is the next moment's preset.** Moments come in runs: nine clips from one
+rehearsal. Typing `Rehearsal` nine times on this keyboard is the most expensive thing in the app. Name
+one moment, and the strip after the next recording opens with that name already in the field. The
+key reads NAME. One press files the clip under it. Type onto the end and the preset stays
+(`Rehearsal Act 2`). **One Backspace clears the whole field** and forgets the preset. Not one per
+letter. The strip is then back to the empty field with the place behind it. The preset survives a
+restart and a change of tape, because a run of moments does too. Recording straight through the
+strip still files the clip under its place. The preset is an offer, not a rule.
+
 ## BrightRecorder v1.18 — a recording on the day is a way back to the recording
 
 **Tapping a clip in BrightNotebook opens it here, cued.** v1.17 gave the notebook a provider, so a
