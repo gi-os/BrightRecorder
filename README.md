@@ -491,6 +491,65 @@ rising whine after ten.
 ./gradlew :app:testDebugUnitTest
 ```
 
+Without signing credentials, the release APK is unsigned and debug builds use the standard Android
+debug key. Neither can update an installed production APK.
+
+### Release signing
+
+Before merging the signing change, disable **Build & Release APK** so the merge does
+not publish. In a private directory outside the checkout, use Android Build Tools
+35.0.0 to generate the replacement key and create a proof of rotation from the original
+release key for `com.gios.brightrecorder`. Use fresh passwords when prompted.
+
+```sh
+keytool -genkeypair -storetype JKS -keystore brightrecorder-new.jks -alias brightrecorder-release \
+  -keyalg RSA -keysize 3072 -validity 10000
+
+apksigner rotate --out brightrecorder.lineage \
+  --old-signer --ks /path/to/original/brightrecorder.jks --ks-key-alias brightrecorder \
+  --set-installed-data true --set-rollback false \
+  --new-signer --ks brightrecorder-new.jks --ks-key-alias brightrecorder-release
+
+apksigner lineage --in brightrecorder.lineage --print-certs
+```
+
+Verify that signer #1's SHA-256 digest matches `signing-lineage-root-fingerprint.txt`
+(`10ef78dea16c2cd0e45bd0b0d2f5649087a26dc37e1cd493e94b7f8b6f27b513`),
+then replace `signing-fingerprint.txt` with signer #2's SHA-256 digest. Do not change
+the original fingerprint. Keep the original private key out of CI; it is only needed
+offline to create the lineage.
+
+In **Settings → Secrets and variables → Actions**, set these five secrets:
+
+| Secret | Value |
+| --- | --- |
+| `RELEASE_KEYSTORE_BASE64` | Base64-encoded `brightrecorder-new.jks` |
+| `SIGNING_LINEAGE_BASE64` | Base64-encoded `brightrecorder.lineage` |
+| `KEYSTORE_PASSWORD` | New keystore password |
+| `KEY_ALIAS` | `brightrecorder-release` |
+| `KEY_PASSWORD` | New key password |
+
+On Linux, upload the files without printing their contents and enter the other values when prompted:
+
+```sh
+base64 -w 0 brightrecorder-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --repo gi-os/BrightRecorder
+base64 -w 0 brightrecorder.lineage | gh secret set SIGNING_LINEAGE_BASE64 --repo gi-os/BrightRecorder
+gh secret set KEYSTORE_PASSWORD --repo gi-os/BrightRecorder
+gh secret set KEY_ALIAS --repo gi-os/BrightRecorder
+gh secret set KEY_PASSWORD --repo gi-os/BrightRecorder
+```
+
+CI signs with the new key using APK Signature Scheme v3 and verifies the proof of rotation
+from the original pin to the new pin. BrightRecorder requires Android API 29, so no supported
+device needs a v1/v2 signature or the old private key. Android can accept an in-place update,
+but a catalog that compares only the current certificate can still hide it from users on
+the old signer. Coordinate the BrightMarket catalog/updater transition before re-enabling
+publishing, and only re-enable it for an authorized release.
+
+A push to `main` (other than ignored paths) or a manual run of `build.yml` builds,
+signs, tags, and publishes. Tag pushes do not trigger it. Branch and PR checks
+in `check.yml` publish nothing.
+
 ## Version history
 
 | Version | What changed |
