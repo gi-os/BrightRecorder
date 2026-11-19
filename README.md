@@ -519,7 +519,24 @@ then replace `signing-fingerprint.txt` with signer #2's SHA-256 digest. Do not c
 the original fingerprint. Keep the original private key out of CI; it is only needed
 offline to create the lineage.
 
-In **Settings → Secrets and variables → Actions**, set these five secrets:
+In [BrightRecorder's environment settings](https://github.com/gi-os/BrightRecorder/settings/environments),
+create an environment named `release`. Under **Deployment branches and tags**, choose
+**Selected branches and tags** and add a single **Branch** rule for `main`, with no tag
+rules. Add the five secrets below to that environment only. Do not use repository-wide
+secrets or upload the original key or its passwords.
+
+For a new environment, the equivalent CLI setup is:
+
+```sh
+gh api --method PUT repos/gi-os/BrightRecorder/environments/release \
+  -F 'deployment_branch_policy[protected_branches]=false' \
+  -F 'deployment_branch_policy[custom_branch_policies]=true'
+gh api --method POST repos/gi-os/BrightRecorder/environments/release/deployment-branch-policies \
+  -f name=main -f type=branch
+```
+
+If the environment already exists, inspect its deployment rules and remove any rules
+other than the single `main` branch rule before uploading secrets.
 
 | Secret | Value |
 | --- | --- |
@@ -532,11 +549,21 @@ In **Settings → Secrets and variables → Actions**, set these five secrets:
 On Linux, upload the files without printing their contents and enter the other values when prompted:
 
 ```sh
-base64 -w 0 brightrecorder-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --repo gi-os/BrightRecorder
-base64 -w 0 brightrecorder.lineage | gh secret set SIGNING_LINEAGE_BASE64 --repo gi-os/BrightRecorder
-gh secret set KEYSTORE_PASSWORD --repo gi-os/BrightRecorder
-gh secret set KEY_ALIAS --repo gi-os/BrightRecorder
-gh secret set KEY_PASSWORD --repo gi-os/BrightRecorder
+base64 -w 0 brightrecorder-new.jks | gh secret set RELEASE_KEYSTORE_BASE64 --env release --repo gi-os/BrightRecorder
+base64 -w 0 brightrecorder.lineage | gh secret set SIGNING_LINEAGE_BASE64 --env release --repo gi-os/BrightRecorder
+gh secret set KEYSTORE_PASSWORD --env release --repo gi-os/BrightRecorder
+gh secret set KEY_ALIAS --env release --repo gi-os/BrightRecorder --body brightrecorder-release
+gh secret set KEY_PASSWORD --env release --repo gi-os/BrightRecorder
+```
+
+Delete any repository-level copies of those secrets so non-release workflows cannot
+access them. Run the delete command only for names present in `gh secret list`:
+
+```sh
+gh secret list --repo gi-os/BrightRecorder
+for secret in RELEASE_KEYSTORE_BASE64 SIGNING_LINEAGE_BASE64 KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD; do
+  gh secret delete "$secret" --repo gi-os/BrightRecorder
+done
 ```
 
 CI signs with the new key using APK Signature Scheme v3 and verifies the proof of rotation
