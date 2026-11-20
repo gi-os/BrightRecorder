@@ -4,6 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val keystoreFile = providers.environmentVariable("KEYSTORE_FILE").orNull
+val keystorePassword = providers.environmentVariable("KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("KEY_PASSWORD").orNull
+
 android {
     namespace = "com.gios.brightrecorder"
     compileSdk = 35
@@ -23,21 +28,24 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
-    signingConfigs {
-        getByName("debug") {
-            storeFile = file("../keystore/brightrecorder.jks")
-            storePassword = "brightrecorder"
-            keyAlias = "brightrecorder"
-            keyPassword = "brightrecorder"
+    val releaseSigning = if (!keystoreFile.isNullOrBlank() && !keystorePassword.isNullOrBlank()
+        && !releaseKeyAlias.isNullOrBlank() && !releaseKeyPassword.isNullOrBlank()
+    ) {
+        signingConfigs.create("release") {
+            storeFile = rootProject.file(keystoreFile)
+            storePassword = keystorePassword
+            keyAlias = releaseKeyAlias
+            keyPassword = releaseKeyPassword
         }
+    } else {
+        null
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Same committed key as debug, so either APK upgrades over the other.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = releaseSigning
         }
     }
     compileOptions {
