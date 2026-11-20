@@ -75,7 +75,7 @@ dependencies {
     // The shake-to-report chip, the crash offer and the report sheet, shared with every other
     // Light* app rather than kept as a seventh copy that drifts from the other six. This app was
     // the last one still carrying the pre-chip generation of it.
-    implementation("com.gios:light-common:1.2.3")
+    implementation("com.gios:light-common:1.11.0")
     // Installs the baseline profile that light-common ships in its AAR. Below API 31 nothing
     // reads a profile on its own, so without this the profile is inert.
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
