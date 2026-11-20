@@ -184,7 +184,8 @@ class MainActivity : ComponentActivity() {
             context = this,
             appName = "BrightRecorder",   // what the app is called on the phone, not the repo
             label = "recorder",           // the triage label in light-reports
-            token = BuildConfig.REPORT_TOKEN,
+            // No key on the phone: reports queue until light-common 1.11.0, which posts them to the report relay.
+            token = "",
         )
         TapeController.attach(this)
         cueFrom(intent)
